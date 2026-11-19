@@ -1,0 +1,2482 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HyperVM Studio — Emulador Dual Android 14 & Windows 11 ISO</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            winBlue: '#0067C0',
+            winAccent: '#4CC2FF',
+            driveBg: '#F8FAFD',
+            driveCard: '#FFFFFF',
+            driveHover: '#EDF2FA',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+    }
+
+    input, textarea, [contenteditable="true"], .selectable-text {
+      user-select: text;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+      background-color: #0f172a;
+    }
+
+    /* Glassmorphism Windows 11 */
+    .mica-light {
+      background: rgba(243, 243, 243, 0.85);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+    }
+
+    .mica-dark {
+      background: rgba(28, 32, 38, 0.82);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+    }
+
+    /* Fondo estilo Windows 11 Bloom */
+    .win11-bloom {
+      background: radial-gradient(circle at 52% 48%, #4cc2ff 0%, #0078d4 28%, #004578 58%, #071930 100%);
+      position: relative;
+      overflow: hidden;
+    }
+    .win11-bloom::before {
+      content: "";
+      position: absolute;
+      width: 68vmax;
+      height: 68vmax;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(18deg);
+      background: conic-gradient(from 90deg at 50% 50%, #38bdf8, #818cf8, #2563eb, #0ea5e9, #38bdf8);
+      border-radius: 42% 58% 63% 37% / 45% 38% 62% 55%;
+      filter: blur(36px);
+      opacity: 0.65;
+      animation: bloomFloat 16s ease-in-out infinite alternate;
+      pointer-events: none;
+    }
+
+    @keyframes bloomFloat {
+      0% { transform: translate(-50%, -50%) rotate(12deg) scale(0.96); }
+      100% { transform: translate(-48%, -52%) rotate(28deg) scale(1.06); }
+    }
+
+    /* Fondo Android 14 Material You */
+    .android-wallpaper {
+      background: linear-gradient(145deg, #132a1c 0%, #1e3f2b 35%, #2d6a4f 72%, #52b788 100%);
+      position: relative;
+    }
+    .android-wallpaper::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 80% 20%, rgba(183, 228, 199, 0.35), transparent 50%),
+                  radial-gradient(circle at 20% 85%, rgba(216, 243, 220, 0.25), transparent 45%);
+      pointer-events: none;
+    }
+
+    /* Ventanas de Windows */
+    .win-window {
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(255, 255, 255, 0.18);
+      transition: opacity 0.16s ease, transform 0.16s ease;
+    }
+
+    /* Scrollbar limpio */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.45);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.75);
+    }
+
+    /* Spinner de arranque */
+    @keyframes spinRing {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .boot-spinner {
+      border: 3px solid rgba(255, 255, 255, 0.2);
+      border-top-color: #ffffff;
+      border-radius: 50%;
+      animation: spinRing 0.9s linear infinite;
+    }
+
+    /* Toast notification */
+    @keyframes slideInToast {
+      from { transform: translateY(16px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .toast-anim {
+      animation: slideInToast 0.22s ease-out forwards;
+    }
+
+    /* Modal de Unidad Óptica / ISO Drive */
+    .modal-backdrop {
+      background: rgba(2, 6, 23, 0.72);
+      backdrop-filter: blur(8px);
+    }
+  </style>
+</head>
+<body class="h-screen w-screen flex flex-col bg-slate-950 text-slate-900">
+
+  <!-- ===================================================================== -->
+  <!-- 1. BARRA SUPERIOR DEL HIPERVISOR (HYPERVISOR TOOLBAR)                 -->
+  <!-- ===================================================================== -->
+  <header id="hypervisor-bar" class="h-11 bg-slate-900/95 border-b border-slate-800 text-slate-200 px-3 flex items-center justify-between z-[9999] shrink-0 text-xs">
+    <!-- Izquierda: Logo & Estado VM -->
+    <div class="flex items-center gap-3">
+      <button onclick="Hypervisor.goHome()" class="flex items-center gap-2 hover:bg-slate-800 px-2.5 py-1.5 rounded-lg transition font-semibold text-white">
+        <span class="w-5 h-5 rounded-md bg-gradient-to-tr from-blue-600 to-cyan-400 flex items-center justify-center text-white shadow">
+          <i data-lucide="cpu" class="w-3.5 h-3.5"></i>
+        </span>
+        <span>HyperVM <span class="text-cyan-400 font-normal">Studio</span></span>
+      </button>
+
+      <div class="h-4 w-[1px] bg-slate-700 hidden sm:block"></div>
+
+      <!-- Indicador de estado -->
+      <div id="hv-status-badge" class="flex items-center gap-2 bg-slate-800/90 border border-slate-700/80 px-2.5 py-1 rounded-full">
+        <span id="hv-status-dot" class="w-2 h-2 rounded-full bg-amber-400"></span>
+        <span id="hv-status-text" class="font-medium text-slate-300 truncate max-w-[180px] sm:max-w-[260px]">Gestor de VMs (En espera)</span>
+      </div>
+    </div>
+
+    <!-- Centro: Cambio rápido entre sistemas -->
+    <div class="hidden md:flex items-center bg-slate-800/90 p-0.5 rounded-lg border border-slate-700/70">
+      <button onclick="Hypervisor.goHome()" id="nav-btn-manager" class="px-3 py-1 rounded-md font-medium transition bg-slate-700 text-white flex items-center gap-1.5">
+        <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i> Gestor VMs
+      </button>
+      <button onclick="Hypervisor.quickSwitch('windows')" id="nav-btn-win" class="px-3 py-1 rounded-md font-medium transition text-slate-400 hover:text-white flex items-center gap-1.5">
+        <i data-lucide="monitor" class="w-3.5 h-3.5 text-sky-400"></i> Windows ISO
+      </button>
+      <button onclick="Hypervisor.quickSwitch('android')" id="nav-btn-and" class="px-3 py-1 rounded-md font-medium transition text-slate-400 hover:text-white flex items-center gap-1.5">
+        <i data-lucide="smartphone" class="w-3.5 h-3.5 text-emerald-400"></i> Android ISO
+      </button>
+    </div>
+
+    <!-- Derecha: Unidad ISO Rápida + Telemetría CPU/RAM + Acciones -->
+    <div class="flex items-center gap-2">
+      <!-- Botón Unidad Óptica ISO (Hot-Swap disponible en todo momento) -->
+      <button onclick="ISODriveModal.open()" title="Insertar, inspeccionar o cambiar archivo ISO / IMG / APK en caliente"
+              class="flex items-center gap-1.5 bg-blue-600/20 hover:bg-blue-600/35 border border-blue-500/40 px-2.5 py-1.5 rounded-lg transition text-sky-200 font-medium">
+        <i data-lucide="disc" class="w-3.5 h-3.5 text-sky-400"></i>
+        <span id="hv-iso-pill" class="hidden sm:inline max-w-[120px] truncate">Insertar ISO</span>
+      </button>
+
+      <!-- Telemetría en tiempo real -->
+      <div class="hidden xl:flex items-center gap-3 bg-slate-800/70 border border-slate-700/60 px-3 py-1 rounded-lg font-mono text-[11px]">
+        <div class="flex items-center gap-1.5" title="Uso de CPU Virtual">
+          <i data-lucide="activity" class="w-3.5 h-3.5 text-cyan-400"></i>
+          <span class="text-slate-400">CPU:</span>
+          <span id="hv-cpu-meter" class="text-cyan-300 font-semibold">4%</span>
+        </div>
+        <div class="w-[1px] h-3 bg-slate-700"></div>
+        <div class="flex items-center gap-1.5" title="Memoria RAM Asignada">
+          <i data-lucide="memory-stick" class="w-3.5 h-3.5 text-emerald-400"></i>
+          <span class="text-slate-400">RAM:</span>
+          <span id="hv-ram-meter" class="text-emerald-300 font-semibold">1.2 / 16 GB</span>
+        </div>
+      </div>
+
+      <!-- Botón Captura de Pantalla -->
+      <button onclick="Hypervisor.takeScreenshot()" title="Capturar pantalla y descargar PNG" class="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-2.5 py-1.5 rounded-lg transition text-slate-200">
+        <i data-lucide="camera" class="w-3.5 h-3.5 text-cyan-400"></i>
+        <span class="hidden sm:inline">Captura</span>
+      </button>
+
+      <!-- Botón Reiniciar VM -->
+      <button id="hv-reboot-btn" onclick="Hypervisor.rebootCurrentVM()" disabled title="Reiniciar máquina virtual activa" class="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:pointer-events-none border border-slate-700 px-2.5 py-1.5 rounded-lg transition text-slate-200">
+        <i data-lucide="rotate-cw" class="w-3.5 h-3.5 text-amber-400"></i>
+        <span class="hidden sm:inline">Reiniciar</span>
+      </button>
+
+      <!-- Botón Apagar / Salir al Menú -->
+      <button id="hv-power-btn" onclick="Hypervisor.goHome()" title="Volver al Selector de VMs" class="flex items-center gap-1.5 bg-rose-600/90 hover:bg-rose-500 px-2.5 py-1.5 rounded-lg transition text-white font-medium">
+        <i data-lucide="power" class="w-3.5 h-3.5"></i>
+        <span class="hidden sm:inline">Menú VM</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ===================================================================== -->
+  <!-- CONTENEDOR PRINCIPAL DE VISTAS                                        -->
+  <!-- ===================================================================== -->
+  <main id="viewport-container" class="flex-1 relative overflow-hidden">
+
+    <!-- =================================================================== -->
+    <!-- VISTA A: SELECTOR DE MÁQUINAS VIRTUALES (ESTILO GOOGLE DRIVE + W11) -->
+    <!-- =================================================================== -->
+    <section id="view-vm-manager" class="absolute inset-0 bg-[#F8FAFD] text-slate-800 overflow-y-auto p-4 sm:p-8 flex flex-col">
+      <div class="max-w-6xl w-full mx-auto flex-1 flex flex-col gap-6">
+
+        <!-- Cabecera limpia estilo Google Drive -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+          <div class="flex items-center gap-4">
+            <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 via-indigo-600 to-cyan-500 flex items-center justify-center text-white shadow-md">
+              <i data-lucide="layers" class="w-6 h-6"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <h1 class="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">HyperVM Workstation</h1>
+                <span class="text-[11px] font-semibold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">ISO 9660 / UDF &amp; KVM Engine</span>
+              </div>
+              <p class="text-sm text-slate-500 mt-0.5">Inserta, lee e inspecciona imágenes <code class="text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">.iso</code>, <code class="text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">.img</code> o paquetes <code class="text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">.apk</code> para arrancar o montar en caliente en Windows y Android.</p>
+            </div>
+          </div>
+
+          <!-- Botones de Acción rápida -->
+          <div class="flex flex-wrap items-center gap-2">
+            <button onclick="ISOParser.createDemoISO('windows')" class="flex items-center gap-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 px-3 py-2.5 rounded-xl text-xs font-semibold transition">
+              <i data-lucide="disc-3" class="w-4 h-4 text-sky-600"></i>
+              <span>Generar ISO Win11 Prueba</span>
+            </button>
+            <button onclick="ISOParser.createDemoISO('android')" class="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-2.5 rounded-xl text-xs font-semibold transition">
+              <i data-lucide="disc-3" class="w-4 h-4 text-emerald-600"></i>
+              <span>Generar ISO Android Prueba</span>
+            </button>
+            <label for="file-iso-input" class="cursor-pointer flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-medium shadow-sm transition">
+              <i data-lucide="hard-drive-upload" class="w-4 h-4"></i>
+              <span>Insertar ISO / APK</span>
+            </label>
+            <input id="file-iso-input" type="file" accept=".iso,.apk,.img,.qcow2,.bin" class="hidden" onchange="VMManager.handleFileSelect(event)" />
+          </div>
+        </div>
+
+        <!-- Zona Dedicada de Inserción, Lectura e Inspección de ISO -->
+        <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-5 space-y-4">
+          <div id="drop-zone"
+               ondragover="VMManager.handleDragOver(event)"
+               ondragleave="VMManager.handleDragLeave(event)"
+               ondrop="VMManager.handleDrop(event)"
+               onclick="document.getElementById('file-iso-input').click()"
+               class="cursor-pointer group bg-[#F8FAFD] hover:bg-[#EDF2FA]/80 border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-2xl p-4 transition-all flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-4">
+              <div class="w-11 h-11 rounded-xl bg-blue-100/80 group-hover:bg-blue-200/70 text-blue-700 flex items-center justify-center transition shrink-0">
+                <i data-lucide="file-up" class="w-5 h-5"></i>
+              </div>
+              <div>
+                <h3 class="text-sm font-semibold text-slate-800">Unidad Virtual de Discos — Arrastra aquí tu archivo <span class="text-blue-600">.ISO</span>, <span class="text-indigo-600">.IMG</span> o <span class="text-emerald-600">.APK</span></h3>
+                <p id="mounted-file-status" class="text-xs text-slate-500 mt-0.5">Lectura real por bloques (<code class="text-[11px]">File.slice()</code>) de descriptores ISO 9660 / UDF y directorios internos sin saturar la memoria.</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <button type="button" onclick="event.stopPropagation(); ISODriveModal.open()" class="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-xs font-semibold text-slate-700 flex items-center gap-1.5 transition">
+                <i data-lucide="folder-search" class="w-3.5 h-3.5 text-indigo-600"></i>
+                <span>Inspeccionar ISO</span>
+              </button>
+              <div id="mounted-file-badge" class="hidden items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-800 px-3 py-1.5 rounded-xl text-xs font-medium">
+                <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-600"></i>
+                <span id="mounted-file-name" class="max-w-[180px] truncate">imagen.iso</span>
+                <button type="button" onclick="event.stopPropagation(); VMManager.clearMountedFile()" class="ml-1 text-emerald-700 hover:text-rose-600" title="Expulsar medio">
+                  <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Panel de Metadatos y Explorador Rápido del ISO Montado -->
+          <div id="iso-inspector-summary" class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-50/90 border border-slate-200/80 rounded-xl p-3.5 text-xs">
+            <div>
+              <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">Etiqueta de Volumen</span>
+              <span id="iso-meta-label" class="font-mono font-semibold text-slate-800">WIN11_25H2_X64</span>
+            </div>
+            <div>
+              <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">Formato / Sistema</span>
+              <span id="iso-meta-fs" class="font-mono font-semibold text-blue-700">ISO 9660 + El Torito UEFI</span>
+            </div>
+            <div>
+              <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">Tamaño del Archivo</span>
+              <span id="iso-meta-size" class="font-mono font-semibold text-slate-800">4.82 GB (Virtual Base)</span>
+            </div>
+            <div>
+              <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">Archivos Detectados</span>
+              <span id="iso-meta-files" class="font-mono font-semibold text-emerald-700">6 entradas (clic en Inspeccionar)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Grid Principal: Tarjetas de Sistemas Operativos + Panel Hardware -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+          <!-- Columna Izquierda: Tarjetas de VMs (7 cols) -->
+          <div class="lg:col-span-7 flex flex-col gap-4">
+            <div class="flex items-center justify-between">
+              <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500">Máquinas Virtuales Disponibles</h2>
+              <span class="text-xs text-slate-400">2 perfiles listos para arrancar</span>
+            </div>
+
+            <!-- Tarjeta Windows 11 ISO -->
+            <div id="card-vm-windows" onclick="VMManager.selectOS('windows')"
+                 class="cursor-pointer bg-white rounded-2xl p-5 border-2 border-blue-600 shadow-md transition-all relative overflow-hidden">
+              <div class="flex items-start justify-between gap-4">
+                <div class="flex items-start gap-4">
+                  <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-500 to-blue-700 flex items-center justify-center text-white shadow-md shrink-0">
+                    <!-- Logo Windows 11 SVG -->
+                    <svg class="w-7 h-7 fill-current" viewBox="0 0 24 24">
+                      <path d="M2 3.5h9.2v9.2H2V3.5zm10.8 0H22v9.2h-9.2V3.5zM2 14.3h9.2v9.2H2v-9.2zm10.8 0H22v9.2h-9.2v-9.2z"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <h3 class="text-lg font-bold text-slate-900">Windows 11 Pro (24H2 ISO)</h3>
+                      <span class="text-[11px] font-medium px-2 py-0.5 rounded-md bg-sky-100 text-sky-800">x86_64 UEFI</span>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                      Entorno completo de escritorio Windows 11 con Explorador de Archivos, Terminal PowerShell, Navegador Edge, Bloc de Notas, Ajustes y Menú Inicio Fluent.
+                    </p>
+                    <div class="flex flex-wrap items-center gap-3 mt-3 text-xs text-slate-600 font-medium">
+                      <span class="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-md"><i data-lucide="disc" class="w-3.5 h-3.5 text-blue-600"></i> Win11_24H2_Spanish_x64.iso</span>
+                      <span class="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-md"><i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-600"></i> TPM 2.0 + Secure Boot</span>
+                    </div>
+                  </div>
+                </div>
+                <div id="check-windows" class="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0">
+                  <i data-lucide="check" class="w-4 h-4"></i>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tarjeta Android 14 OS -->
+            <div id="card-vm-android" onclick="VMManager.selectOS('android')"
+                 class="cursor-pointer bg-white rounded-2xl p-5 border-2 border-slate-200 hover:border-emerald-400 shadow-sm transition-all relative overflow-hidden">
+              <div class="flex items-start justify-between gap-4">
+                <div class="flex items-start gap-4">
+                  <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-white shadow-md shrink-0">
+                    <i data-lucide="smartphone" class="w-7 h-7"></i>
+                  </div>
+                  <div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <h3 class="text-lg font-bold text-slate-900">Android OS v14 (Upside Down Cake)</h3>
+                      <span class="text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">ARM64 / AOSP</span>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                      Emulador móvil, tablet y modo escritorio DeX. Soporta montaje de ISOs Android-x86 / BlissOS, pantalla de bloqueo, gestos, centro de notificaciones, Cámara, Calculadora, Galería e instalador APK.
+                    </p>
+                    <div class="flex flex-wrap items-center gap-3 mt-3 text-xs text-slate-600 font-medium">
+                      <span class="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-md"><i data-lucide="disc" class="w-3.5 h-3.5 text-emerald-600"></i> android-14-x86_64.iso</span>
+                      <span class="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-md"><i data-lucide="tablet-smartphone" class="w-3.5 h-3.5 text-teal-600"></i> Portrait / Tablet / DeX</span>
+                    </div>
+                  </div>
+                </div>
+                <div id="check-android" class="w-6 h-6 rounded-full border-2 border-slate-300 text-transparent flex items-center justify-center shrink-0">
+                  <i data-lucide="check" class="w-4 h-4"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Columna Derecha: Configuración de Hardware Virtual (5 cols) -->
+          <div class="lg:col-span-5 flex flex-col gap-4">
+            <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500">Asignación de Recursos (Hardware VM)</h2>
+
+            <div class="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-sm flex flex-col justify-between gap-5 flex-1">
+              <div class="space-y-5">
+                <!-- Perfil seleccionado -->
+                <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <span class="text-xs font-medium text-slate-500">Sistema seleccionado:</span>
+                  <span id="config-os-label" class="text-xs font-bold px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700">Windows 11 Pro ISO</span>
+                </div>
+
+                <!-- Control CPU -->
+                <div>
+                  <div class="flex justify-between text-xs font-semibold mb-1.5">
+                    <span class="text-slate-700 flex items-center gap-1.5"><i data-lucide="cpu" class="w-4 h-4 text-blue-600"></i> Núcleos de Procesador (vCPU)</span>
+                    <span id="spec-cpu-val" class="text-blue-600 font-mono">4 Núcleos</span>
+                  </div>
+                  <input id="spec-cpu" type="range" min="2" max="16" step="2" value="4" oninput="VMManager.updateSpecs()"
+                         class="w-full accent-blue-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg" />
+                  <div class="flex justify-between text-[10px] text-slate-400 mt-1">
+                    <span>2 vCPU</span><span>8 vCPU</span><span>16 vCPU</span>
+                  </div>
+                </div>
+
+                <!-- Control RAM -->
+                <div>
+                  <div class="flex justify-between text-xs font-semibold mb-1.5">
+                    <span class="text-slate-700 flex items-center gap-1.5"><i data-lucide="memory-stick" class="w-4 h-4 text-emerald-600"></i> Memoria RAM Virtual</span>
+                    <span id="spec-ram-val" class="text-emerald-600 font-mono">8 GB</span>
+                  </div>
+                  <input id="spec-ram" type="range" min="2" max="32" step="2" value="8" oninput="VMManager.updateSpecs()"
+                         class="w-full accent-emerald-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg" />
+                  <div class="flex justify-between text-[10px] text-slate-400 mt-1">
+                    <span>2 GB</span><span>16 GB</span><span>32 GB</span>
+                  </div>
+                </div>
+
+                <!-- Control Almacenamiento -->
+                <div>
+                  <div class="flex justify-between text-xs font-semibold mb-1.5">
+                    <span class="text-slate-700 flex items-center gap-1.5"><i data-lucide="hard-drive" class="w-4 h-4 text-indigo-600"></i> Disco NVMe Virtual</span>
+                    <span id="spec-disk-val" class="text-indigo-600 font-mono">64 GB</span>
+                  </div>
+                  <input id="spec-disk" type="range" min="16" max="512" step="16" value="64" oninput="VMManager.updateSpecs()"
+                         class="w-full accent-indigo-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg" />
+                  <div class="flex justify-between text-[10px] text-slate-400 mt-1">
+                    <span>16 GB</span><span>256 GB</span><span>512 GB</span>
+                  </div>
+                </div>
+
+                <!-- Aceleración Gráfica -->
+                <div class="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                  <span class="text-slate-600 font-medium flex items-center gap-1.5">
+                    <i data-lucide="sparkles" class="w-4 h-4 text-amber-500"></i> Aceleración 3D VirtIO-GPU
+                  </span>
+                  <label class="inline-flex items-center cursor-pointer">
+                    <input id="spec-gpu" type="checkbox" checked class="sr-only peer">
+                    <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all relative peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Botón Iniciar Máquina Virtual -->
+              <button onclick="Hypervisor.bootSelectedVM()"
+                      class="w-full py-3.5 px-5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold text-sm shadow-lg shadow-blue-600/25 flex items-center justify-center gap-2.5 transition transform active:scale-[0.99]">
+                <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+                <span>Iniciar Máquina Virtual</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- VISTA B: PANTALLA DE ARRANQUE (BIOS / UEFI BOOT SCREEN)             -->
+    <!-- =================================================================== -->
+    <section id="view-boot-screen" class="hidden absolute inset-0 bg-black text-white z-50 flex flex-col items-center justify-center p-6">
+      <div class="max-w-md w-full flex flex-col items-center text-center gap-6">
+        <!-- Logo dinámico según SO -->
+        <div id="boot-logo-container" class="w-20 h-20 flex items-center justify-center"></div>
+
+        <!-- Texto BIOS / Logs -->
+        <div class="w-full space-y-2">
+          <div class="boot-spinner w-8 h-8 mx-auto mb-4"></div>
+          <p id="boot-title" class="text-base font-medium tracking-wide text-slate-100">Iniciando UEFI Firmware...</p>
+          <p id="boot-subtitle" class="text-xs font-mono text-slate-400">Verificando memoria RAM y dispositivo de arranque...</p>
+        </div>
+
+        <!-- Barra de progreso -->
+        <div class="w-64 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+          <div id="boot-progress-bar" class="h-full bg-sky-400 transition-all duration-300 w-0"></div>
+        </div>
+
+        <div id="boot-bios-log" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-left font-mono text-[11px] text-emerald-400/90 h-28 overflow-hidden space-y-1">
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- VISTA C: ENTORNO EMULADO DE WINDOWS 11 PRO (ISO)                    -->
+    <!-- =================================================================== -->
+    <section id="view-windows" class="hidden absolute inset-0 win11-bloom select-none overflow-hidden">
+      <!-- Barra flotante superior de Unidad ISO en Windows -->
+      <div class="absolute top-3 right-3 z-30 flex items-center gap-2 mica-light border border-white/60 px-3 py-1.5 rounded-full shadow-md text-[11px] text-slate-800">
+        <i data-lucide="disc" class="w-3.5 h-3.5 text-blue-600"></i>
+        <span class="font-semibold">Unidad D:</span>
+        <span id="win-iso-badge-name" class="font-mono max-w-[160px] truncate text-slate-700">Win11_24H2_Spanish_x64.iso</span>
+        <button onclick="ISODriveModal.open()" class="ml-1 px-2 py-0.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold transition">
+          Cambiar ISO
+        </button>
+      </div>
+
+      <!-- Área de iconos del escritorio -->
+      <div id="win-desktop-icons" class="absolute inset-0 bottom-12 p-4 flex flex-col flex-wrap content-start gap-2 z-10">
+        <!-- Este Equipo -->
+        <button ondblclick="WinOS.openApp('explorer')" onclick="WinOS.selectIcon(this)"
+                class="win-desktop-icon w-20 p-2 rounded-lg hover:bg-white/15 focus:bg-white/20 flex flex-col items-center gap-1 text-white text-center transition">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-b from-sky-300 to-blue-600 flex items-center justify-center shadow-md">
+            <i data-lucide="monitor" class="w-5 h-5 text-white"></i>
+          </div>
+          <span class="text-[11px] font-medium drop-shadow leading-tight">Este equipo</span>
+        </button>
+
+        <!-- Papelera -->
+        <button ondblclick="WinOS.openApp('explorer')" onclick="WinOS.selectIcon(this)"
+                class="win-desktop-icon w-20 p-2 rounded-lg hover:bg-white/15 focus:bg-white/20 flex flex-col items-center gap-1 text-white text-center transition">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-b from-slate-200 to-slate-500 flex items-center justify-center shadow-md">
+            <i data-lucide="trash-2" class="w-5 h-5 text-slate-900"></i>
+          </div>
+          <span class="text-[11px] font-medium drop-shadow leading-tight">Papelera</span>
+        </button>
+
+        <!-- Microsoft Edge -->
+        <button ondblclick="WinOS.openApp('browser')" onclick="WinOS.selectIcon(this)"
+                class="win-desktop-icon w-20 p-2 rounded-lg hover:bg-white/15 focus:bg-white/20 flex flex-col items-center gap-1 text-white text-center transition">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-cyan-500 to-emerald-400 flex items-center justify-center shadow-md">
+            <i data-lucide="globe" class="w-5 h-5 text-white"></i>
+          </div>
+          <span class="text-[11px] font-medium drop-shadow leading-tight">Navegador Edge</span>
+        </button>
+
+        <!-- Terminal PowerShell -->
+        <button ondblclick="WinOS.openApp('terminal')" onclick="WinOS.selectIcon(this)"
+                class="win-desktop-icon w-20 p-2 rounded-lg hover:bg-white/15 focus:bg-white/20 flex flex-col items-center gap-1 text-white text-center transition">
+          <div class="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center shadow-md">
+            <i data-lucide="terminal" class="w-5 h-5 text-sky-400"></i>
+          </div>
+          <span class="text-[11px] font-medium drop-shadow leading-tight">Terminal</span>
+        </button>
+
+        <!-- Bloc de Notas -->
+        <button ondblclick="WinOS.openApp('notepad')" onclick="WinOS.selectIcon(this)"
+                class="win-desktop-icon w-20 p-2 rounded-lg hover:bg-white/15 focus:bg-white/20 flex flex-col items-center gap-1 text-white text-center transition">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-b from-cyan-400 to-blue-500 flex items-center justify-center shadow-md">
+            <i data-lucide="file-text" class="w-5 h-5 text-white"></i>
+          </div>
+          <span class="text-[11px] font-medium drop-shadow leading-tight">Bloc de notas</span>
+        </button>
+
+        <!-- Configuración -->
+        <button ondblclick="WinOS.openApp('settings')" onclick="WinOS.selectIcon(this)"
+                class="win-desktop-icon w-20 p-2 rounded-lg hover:bg-white/15 focus:bg-white/20 flex flex-col items-center gap-1 text-white text-center transition">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-b from-slate-600 to-slate-800 flex items-center justify-center shadow-md">
+            <i data-lucide="settings" class="w-5 h-5 text-sky-300"></i>
+          </div>
+          <span class="text-[11px] font-medium drop-shadow leading-tight">Configuración</span>
+        </button>
+      </div>
+
+      <!-- Contenedor dinámico de Ventanas de Windows 11 -->
+      <div id="win-windows-layer" class="absolute inset-0 bottom-12 pointer-events-none z-20"></div>
+
+      <!-- Menú Inicio de Windows 11 (Centrado) -->
+      <div id="win-start-menu" class="hidden absolute bottom-14 left-1/2 -translate-x-1/2 w-[92vw] max-w-[540px] mica-light rounded-2xl shadow-2xl border border-white/60 p-5 z-40 text-slate-800 transition-all">
+        <!-- Barra de búsqueda -->
+        <div class="relative mb-5">
+          <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2"></i>
+          <input id="win-start-search" type="text" oninput="WinOS.filterStartApps(this.value)" placeholder="Escribe aquí para buscar aplicaciones, archivos o ajustes..."
+                 class="w-full bg-white/90 border border-slate-200/90 rounded-full pl-10 pr-4 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+
+        <div class="flex items-center justify-between mb-3 px-1">
+          <span class="text-xs font-bold text-slate-700">Anclado</span>
+          <span class="text-[11px] text-slate-500 bg-white/70 px-2 py-0.5 rounded-md border border-slate-200/60">Todas las apps &rsaquo;</span>
+        </div>
+
+        <!-- Cuadrícula de Apps Ancladas -->
+        <div id="win-start-apps-grid" class="grid grid-cols-4 sm:grid-cols-6 gap-2 mb-5">
+          <!-- Se rellena por JS -->
+        </div>
+
+        <!-- Recomendado -->
+        <div class="mb-4 px-1">
+          <span class="text-xs font-bold text-slate-700 block mb-2">Recomendado</span>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button onclick="WinOS.openApp('notepad'); WinOS.toggleStartMenu(false)" class="flex items-center gap-2.5 p-2 rounded-lg hover:bg-white/70 text-left transition">
+              <i data-lucide="file-text" class="w-4 h-4 text-blue-600"></i>
+              <div>
+                <div class="text-xs font-medium text-slate-800">Notas_Instalacion_ISO.txt</div>
+                <div class="text-[10px] text-slate-500">Hace 5 minutos</div>
+              </div>
+            </button>
+            <button onclick="WinOS.openApp('settings'); WinOS.toggleStartMenu(false)" class="flex items-center gap-2.5 p-2 rounded-lg hover:bg-white/70 text-left transition">
+              <i data-lucide="cpu" class="w-4 h-4 text-indigo-600"></i>
+              <div>
+                <div class="text-xs font-medium text-slate-800">Especificaciones de VM</div>
+                <div class="text-[10px] text-slate-500">Sistema Windows 11 Pro</div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Pie del menú inicio: Usuario y Apagado -->
+        <div class="pt-3 border-t border-slate-300/60 flex items-center justify-between px-2">
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-full bg-gradient-to-tr from-blue-600 to-cyan-500 text-white flex items-center justify-center text-xs font-bold">
+              U
+            </div>
+            <span class="text-xs font-medium text-slate-700">Usuario Administrador</span>
+          </div>
+          <div class="flex items-center gap-1">
+            <button onclick="Hypervisor.rebootCurrentVM()" title="Reiniciar Windows 11" class="p-2 rounded-lg hover:bg-white/80 text-slate-700 transition">
+              <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+            </button>
+            <button onclick="Hypervisor.goHome()" title="Apagar y volver al Gestor VM" class="p-2 rounded-lg hover:bg-rose-100 text-rose-600 transition">
+              <i data-lucide="power" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel de Ajustes Rápidos de Windows 11 (Esquina inferior derecha) -->
+      <div id="win-quick-settings" class="hidden absolute bottom-14 right-3 w-72 mica-light rounded-2xl shadow-2xl border border-white/60 p-4 z-40 text-slate-800 space-y-4">
+        <div class="grid grid-cols-3 gap-2">
+          <button onclick="this.classList.toggle('bg-blue-600'); this.classList.toggle('text-white'); this.classList.toggle('bg-white/80')"
+                  class="bg-blue-600 text-white p-2.5 rounded-xl flex flex-col items-center gap-1 text-[11px] font-medium shadow-sm transition">
+            <i data-lucide="wifi" class="w-4 h-4"></i>
+            <span>Wi-Fi</span>
+          </button>
+          <button onclick="this.classList.toggle('bg-blue-600'); this.classList.toggle('text-white'); this.classList.toggle('bg-white/80')"
+                  class="bg-blue-600 text-white p-2.5 rounded-xl flex flex-col items-center gap-1 text-[11px] font-medium shadow-sm transition">
+            <i data-lucide="bluetooth" class="w-4 h-4"></i>
+            <span>Bluetooth</span>
+          </button>
+          <button onclick="this.classList.toggle('bg-blue-600'); this.classList.toggle('text-white'); this.classList.toggle('bg-white/80')"
+                  class="bg-white/80 p-2.5 rounded-xl flex flex-col items-center gap-1 text-[11px] font-medium shadow-sm transition">
+            <i data-lucide="plane" class="w-4 h-4"></i>
+            <span>Avión</span>
+          </button>
+        </div>
+
+        <!-- Brillo -->
+        <div class="space-y-1">
+          <div class="flex items-center justify-between text-[11px] text-slate-600">
+            <span class="flex items-center gap-1.5"><i data-lucide="sun" class="w-3.5 h-3.5"></i> Brillo</span>
+            <span id="win-brightness-val">100%</span>
+          </div>
+          <input type="range" min="40" max="100" value="100" oninput="WinOS.setBrightness(this.value)" class="w-full accent-blue-600 h-1.5 bg-slate-300 rounded-lg cursor-pointer">
+        </div>
+
+        <!-- Volumen -->
+        <div class="space-y-1">
+          <div class="flex items-center justify-between text-[11px] text-slate-600">
+            <span class="flex items-center gap-1.5"><i data-lucide="volume-2" class="w-3.5 h-3.5"></i> Volumen</span>
+            <span id="win-volume-val">75%</span>
+          </div>
+          <input type="range" min="0" max="100" value="75" oninput="document.getElementById('win-volume-val').textContent = this.value + '%'" class="w-full accent-blue-600 h-1.5 bg-slate-300 rounded-lg cursor-pointer">
+        </div>
+
+        <div class="pt-2 border-t border-slate-300/60 flex items-center justify-between text-[11px] text-slate-600">
+          <span class="flex items-center gap-1"><i data-lucide="battery-charging" class="w-4 h-4 text-emerald-600"></i> 98% Conectado</span>
+          <button onclick="WinOS.openApp('settings'); WinOS.toggleQuickSettings(false)" class="hover:text-blue-600">
+            <i data-lucide="settings" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Barra de Tareas de Windows 11 -->
+      <div id="win-taskbar" class="absolute bottom-0 inset-x-0 h-12 mica-light border-t border-white/50 px-3 flex items-center justify-between z-50">
+        <!-- Widgets izquierda -->
+        <button onclick="WinOS.openApp('browser')" class="hidden sm:flex items-center gap-2 hover:bg-white/60 px-2.5 py-1 rounded-lg transition text-slate-700">
+          <i data-lucide="cloud-sun" class="w-4 h-4 text-amber-500"></i>
+          <div class="text-left leading-tight">
+            <div class="text-[11px] font-semibold">24°C</div>
+            <div class="text-[10px] text-slate-500">Soleado</div>
+          </div>
+        </button>
+
+        <!-- Iconos Centrados (Inicio + Apps Ancladas/Abiertas) -->
+        <div class="flex items-center gap-1.5 mx-auto">
+          <!-- Botón Inicio Windows 11 -->
+          <button onclick="WinOS.toggleStartMenu()" title="Inicio" class="p-2 rounded-lg hover:bg-white/70 active:scale-95 transition flex items-center justify-center">
+            <svg class="w-5 h-5" viewBox="0 0 24 24">
+              <path fill="#0078D4" d="M2 3.5h9.2v9.2H2V3.5z"/>
+              <path fill="#28A8EA" d="M12.8 3.5H22v9.2h-9.2V3.5z"/>
+              <path fill="#0078D4" d="M2 14.3h9.2v9.2H2v-9.2z"/>
+              <path fill="#50E6FF" d="M12.8 14.3H22v9.2h-9.2v-9.2z"/>
+            </svg>
+          </button>
+
+          <!-- Búsqueda -->
+          <button onclick="WinOS.toggleStartMenu(true); setTimeout(() => document.getElementById('win-start-search').focus(), 60)"
+                  class="hidden md:flex items-center gap-2 bg-white/80 hover:bg-white border border-slate-200/80 px-3 py-1.5 rounded-full text-xs text-slate-500 w-44 transition">
+            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-500"></i>
+            <span>Buscar</span>
+          </button>
+
+          <!-- Accesos directos barra de tareas -->
+          <button onclick="WinOS.openApp('explorer')" title="Explorador de archivos" class="p-2 rounded-lg hover:bg-white/70 transition relative group">
+            <i data-lucide="folder" class="w-5 h-5 text-amber-500 fill-amber-400"></i>
+          </button>
+          <button onclick="WinOS.openApp('browser')" title="Microsoft Edge" class="p-2 rounded-lg hover:bg-white/70 transition">
+            <i data-lucide="globe" class="w-5 h-5 text-sky-600"></i>
+          </button>
+          <button onclick="WinOS.openApp('terminal')" title="Terminal PowerShell" class="p-2 rounded-lg hover:bg-white/70 transition">
+            <i data-lucide="terminal" class="w-5 h-5 text-slate-800"></i>
+          </button>
+          <button onclick="WinOS.openApp('notepad')" title="Bloc de notas" class="p-2 rounded-lg hover:bg-white/70 transition">
+            <i data-lucide="file-text" class="w-5 h-5 text-cyan-600"></i>
+          </button>
+          <button onclick="WinOS.openApp('settings')" title="Configuración" class="p-2 rounded-lg hover:bg-white/70 transition">
+            <i data-lucide="settings" class="w-5 h-5 text-slate-600"></i>
+          </button>
+
+          <!-- Contenedor de apps minimizadas/abiertas dinámicas -->
+          <div id="win-taskbar-running" class="flex items-center gap-1 border-l border-slate-300/70 pl-1.5 empty:hidden"></div>
+        </div>
+
+        <!-- Bandeja del sistema + Reloj -->
+        <div class="flex items-center gap-1">
+          <button onclick="WinOS.toggleQuickSettings()" class="flex items-center gap-2 hover:bg-white/70 px-2 py-1.5 rounded-lg transition text-slate-700">
+            <i data-lucide="wifi" class="w-3.5 h-3.5"></i>
+            <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+            <i data-lucide="battery-charging" class="w-3.5 h-3.5 text-emerald-600"></i>
+          </button>
+
+          <button onclick="WinOS.toggleQuickSettings()" class="hover:bg-white/70 px-2.5 py-1 rounded-lg transition text-right text-slate-800 leading-tight">
+            <div id="win-clock-time" class="text-[11px] font-semibold">12:00</div>
+            <div id="win-clock-date" class="text-[10px] text-slate-600">19/11/2026</div>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- VISTA D: ENTORNO EMULADO DE ANDROID 14 (PHONE / TABLET / DEX MODE)   -->
+    <!-- =================================================================== -->
+    <section id="view-android" class="hidden absolute inset-0 bg-slate-900 flex flex-col items-center justify-center p-2 sm:p-4 overflow-hidden">
+
+      <!-- Controles de Factor de Forma del Dispositivo Android + Inserción ISO -->
+      <div class="mb-2.5 flex flex-wrap items-center justify-center gap-1.5 bg-slate-800/90 border border-slate-700 p-1 rounded-xl text-xs text-slate-300 z-30 shadow-lg">
+        <button onclick="AndroidOS.setFormFactor('phone')" id="and-mode-phone" class="px-3 py-1 rounded-lg bg-emerald-600 text-white font-medium flex items-center gap-1.5 transition">
+          <i data-lucide="smartphone" class="w-3.5 h-3.5"></i> Teléfono
+        </button>
+        <button onclick="AndroidOS.setFormFactor('tablet')" id="and-mode-tablet" class="px-3 py-1 rounded-lg hover:bg-slate-700 flex items-center gap-1.5 transition">
+          <i data-lucide="tablet" class="w-3.5 h-3.5"></i> Tablet Horizontal
+        </button>
+        <button onclick="AndroidOS.setFormFactor('dex')" id="and-mode-dex" class="px-3 py-1 rounded-lg hover:bg-slate-700 flex items-center gap-1.5 transition">
+          <i data-lucide="monitor" class="w-3.5 h-3.5"></i> Modo DeX Escritorio
+        </button>
+        <div class="w-[1px] h-4 bg-slate-700 mx-1"></div>
+        <button onclick="ISODriveModal.open()" title="Insertar o inspeccionar ISO / APK en Android" class="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 font-medium transition">
+          <i data-lucide="disc" class="w-3.5 h-3.5"></i>
+          <span id="and-iso-pill" class="max-w-[110px] truncate">ISO / APK</span>
+        </button>
+        <button onclick="AndroidOS.lockScreen()" title="Bloquear pantalla" class="p-1.5 rounded-lg hover:bg-slate-700 text-slate-300">
+          <i data-lucide="lock" class="w-3.5 h-3.5"></i>
+        </button>
+      </div>
+
+      <!-- Marco del Dispositivo Android -->
+      <div id="android-device-frame" class="relative w-[340px] sm:w-[375px] h-[660px] max-h-[calc(100vh-110px)] rounded-[38px] border-[8px] border-slate-800 shadow-[0_25px_70px_rgba(0,0,0,0.65)] overflow-hidden flex flex-col android-wallpaper text-white transition-all duration-300">
+
+        <!-- Cámara frontal (Punch-hole) -->
+        <div id="android-camera-notch" class="absolute top-2.5 left-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-slate-950 border border-slate-700 z-50 pointer-events-none"></div>
+
+        <!-- Barra de Estado Superior Android -->
+        <div onclick="AndroidOS.toggleNotificationShade()" class="cursor-pointer h-8 px-5 pt-1 flex items-center justify-between text-[11px] font-semibold z-40 bg-black/15 backdrop-blur-xs">
+          <span id="and-status-time">12:00</span>
+          <div class="flex items-center gap-1.5">
+            <i data-lucide="wifi" class="w-3.5 h-3.5"></i>
+            <i data-lucide="signal" class="w-3.5 h-3.5"></i>
+            <span class="text-[10px]">96%</span>
+            <i data-lucide="battery-full" class="w-3.5 h-3.5 text-emerald-300"></i>
+          </div>
+        </div>
+
+        <!-- Panel Desplegable de Notificaciones y Ajustes Rápidos Android -->
+        <div id="android-notif-shade" class="hidden absolute inset-x-0 top-0 bottom-0 bg-slate-950/92 backdrop-blur-xl z-50 p-4 flex flex-col justify-between transition-all">
+          <div class="space-y-4">
+            <div class="flex items-center justify-between text-xs text-slate-400">
+              <span id="and-shade-date" class="font-medium text-slate-200">Jueves, 19 nov</span>
+              <button onclick="AndroidOS.toggleNotificationShade(false)" class="p-1.5 rounded-full bg-slate-800 text-white">
+                <i data-lucide="chevron-up" class="w-4 h-4"></i>
+              </button>
+            </div>
+
+            <!-- Tiles Material You -->
+            <div class="grid grid-cols-2 gap-2.5">
+              <button onclick="this.classList.toggle('bg-emerald-500'); this.classList.toggle('text-slate-950'); this.classList.toggle('bg-slate-800')"
+                      class="bg-emerald-500 text-slate-950 p-3 rounded-2xl flex items-center gap-2.5 text-left transition">
+                <i data-lucide="wifi" class="w-4 h-4 shrink-0"></i>
+                <div>
+                  <div class="text-xs font-bold">Internet</div>
+                  <div class="text-[10px] opacity-80">HyperVM-5G</div>
+                </div>
+              </button>
+              <button onclick="this.classList.toggle('bg-emerald-500'); this.classList.toggle('text-slate-950'); this.classList.toggle('bg-slate-800')"
+                      class="bg-emerald-500 text-slate-950 p-3 rounded-2xl flex items-center gap-2.5 text-left transition">
+                <i data-lucide="bluetooth" class="w-4 h-4 shrink-0"></i>
+                <div>
+                  <div class="text-xs font-bold">Bluetooth</div>
+                  <div class="text-[10px] opacity-80">Activado</div>
+                </div>
+              </button>
+              <button onclick="this.classList.toggle('bg-emerald-500'); this.classList.toggle('text-slate-950'); this.classList.toggle('bg-slate-800')"
+                      class="bg-slate-800 text-white p-3 rounded-2xl flex items-center gap-2.5 text-left transition">
+                <i data-lucide="flashlight" class="w-4 h-4 shrink-0"></i>
+                <div>
+                  <div class="text-xs font-bold">Linterna</div>
+                  <div class="text-[10px] opacity-70">Apagada</div>
+                </div>
+              </button>
+              <button onclick="AndroidOS.openApp('settings'); AndroidOS.toggleNotificationShade(false)"
+                      class="bg-slate-800 text-white p-3 rounded-2xl flex items-center gap-2.5 text-left transition">
+                <i data-lucide="settings" class="w-4 h-4 shrink-0"></i>
+                <div>
+                  <div class="text-xs font-bold">Ajustes VM</div>
+                  <div class="text-[10px] opacity-70">Android 14</div>
+                </div>
+              </button>
+            </div>
+
+            <!-- Barra de brillo Android -->
+            <div class="bg-slate-800/90 p-3 rounded-2xl flex items-center gap-3">
+              <i data-lucide="sun" class="w-4 h-4 text-emerald-300"></i>
+              <input type="range" min="40" max="100" value="100" oninput="document.getElementById('android-device-frame').style.filter = 'brightness(' + this.value + '%)'"
+                     class="w-full accent-emerald-400 h-1.5 bg-slate-700 rounded-lg cursor-pointer">
+            </div>
+
+            <!-- Notificaciones simuladas -->
+            <div class="space-y-2">
+              <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Notificaciones</div>
+              <div class="bg-slate-800/80 border border-slate-700/70 p-3 rounded-2xl flex items-start gap-3">
+                <div class="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center shrink-0">
+                  <i data-lucide="shield-check" class="w-4 h-4"></i>
+                </div>
+                <div>
+                  <div class="text-xs font-semibold text-white">Sistema Android 14 listo</div>
+                  <div class="text-[11px] text-slate-400">Servicios de Google Play y aceleración VirtIO activos.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <button onclick="AndroidOS.toggleNotificationShade(false)" class="w-full py-2 text-xs text-slate-400 hover:text-white">
+            Cerrar panel
+          </button>
+        </div>
+
+        <!-- PANTALLA DE BLOQUEO ANDROID -->
+        <div id="android-lockscreen" onclick="AndroidOS.unlockScreen()"
+             class="cursor-pointer absolute inset-0 bg-gradient-to-b from-slate-950/60 via-emerald-950/50 to-slate-950/80 backdrop-blur-md z-40 flex flex-col items-center justify-between py-14 px-6 text-center">
+          <div class="mt-4">
+            <div id="and-lock-time" class="text-6xl font-light tracking-tight text-emerald-100">12:00</div>
+            <div id="and-lock-date" class="text-sm text-emerald-200/80 mt-1 font-medium">Jueves, 19 de noviembre</div>
+          </div>
+
+          <div class="flex flex-col items-center gap-2 animate-bounce">
+            <div class="w-11 h-11 rounded-full bg-white/15 border border-white/25 flex items-center justify-center">
+              <i data-lucide="fingerprint" class="w-6 h-6 text-emerald-300"></i>
+            </div>
+            <span class="text-xs text-emerald-100/90 font-medium">Toca o desliza para desbloquear</span>
+          </div>
+        </div>
+
+        <!-- PANTALLA DE INICIO (HOME SCREEN ANDROID) -->
+        <div id="android-homescreen" class="flex-1 flex flex-col justify-between p-4 z-10 overflow-y-auto">
+          <!-- Widget Material You Clima + Reloj -->
+          <div class="bg-white/15 backdrop-blur-md border border-white/20 rounded-3xl p-4 flex items-center justify-between shadow-lg">
+            <div>
+              <div id="and-widget-date" class="text-xs font-medium text-emerald-100">Jue, 19 nov</div>
+              <div class="text-2xl font-bold mt-0.5 flex items-center gap-2">
+                <span>24°C</span>
+                <span class="text-xs font-normal text-emerald-100/80">Despejado</span>
+              </div>
+            </div>
+            <div class="w-12 h-12 rounded-2xl bg-amber-400/25 flex items-center justify-center text-amber-300">
+              <i data-lucide="sun" class="w-7 h-7"></i>
+            </div>
+          </div>
+
+          <!-- Cuadrícula de Aplicaciones Android -->
+          <div class="grid grid-cols-4 gap-y-4 gap-x-2 my-auto py-3">
+            <button onclick="AndroidOS.openApp('settings')" class="flex flex-col items-center gap-1.5 group">
+              <div class="w-13 h-13 w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-600 to-slate-800 flex items-center justify-center shadow-md group-active:scale-90 transition">
+                <i data-lucide="settings" class="w-6 h-6 text-emerald-300"></i>
+              </div>
+              <span class="text-[11px] font-medium drop-shadow">Ajustes</span>
+            </button>
+
+            <button onclick="AndroidOS.openApp('browser')" class="flex flex-col items-center gap-1.5 group">
+              <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md group-active:scale-90 transition">
+                <i data-lucide="chrome" class="w-6 h-6 text-white"></i>
+              </div>
+              <span class="text-[11px] font-medium drop-shadow">Chrome</span>
+            </button>
+
+            <button onclick="AndroidOS.openApp('calculator')" class="flex flex-col items-center gap-1.5 group">
+              <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center shadow-md group-active:scale-90 transition">
+                <i data-lucide="calculator" class="w-6 h-6 text-white"></i>
+              </div>
+              <span class="text-[11px] font-medium drop-shadow">Calculadora</span>
+            </button>
+
+            <button onclick="AndroidOS.openApp('camera')" class="flex flex-col items-center gap-1.5 group">
+              <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-rose-500 to-orange-500 flex items-center justify-center shadow-md group-active:scale-90 transition">
+                <i data-lucide="camera" class="w-6 h-6 text-white"></i>
+              </div>
+              <span class="text-[11px] font-medium drop-shadow">Cámara</span>
+            </button>
+
+            <button onclick="AndroidOS.openApp('files')" class="flex flex-col items-center gap-1.5 group">
+              <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-md group-active:scale-90 transition">
+                <i data-lucide="folder-open" class="w-6 h-6 text-white"></i>
+              </div>
+              <span class="text-[11px] font-medium drop-shadow">Archivos</span>
+            </button>
+
+            <button onclick="AndroidOS.openApp('notes')" class="flex flex-col items-center gap-1.5 group">
+              <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-yellow-400 to-amber-500 flex items-center justify-center shadow-md group-active:scale-90 transition">
+                <i data-lucide="sticky-note" class="w-6 h-6 text-slate-900"></i>
+              </div>
+              <span class="text-[11px] font-medium drop-shadow">Notas Keep</span>
+            </button>
+
+            <button onclick="AndroidOS.openApp('apk')" class="flex flex-col items-center gap-1.5 group">
+              <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500 to-green-700 flex items-center justify-center shadow-md group-active:scale-90 transition">
+                <i data-lucide="package-plus" class="w-6 h-6 text-white"></i>
+              </div>
+              <span class="text-[11px] font-medium drop-shadow">ISO / APK</span>
+            </button>
+
+            <button onclick="AndroidOS.openApp('gallery')" class="flex flex-col items-center gap-1.5 group">
+              <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center shadow-md group-active:scale-90 transition">
+                <i data-lucide="image" class="w-6 h-6 text-white"></i>
+              </div>
+              <span class="text-[11px] font-medium drop-shadow">Galería</span>
+            </button>
+          </div>
+
+          <!-- Barra de búsqueda Google + Dock -->
+          <div class="space-y-3">
+            <div onclick="AndroidOS.openApp('browser')" class="cursor-pointer bg-white/90 text-slate-700 rounded-full px-4 py-2.5 flex items-center justify-between shadow-md">
+              <div class="flex items-center gap-2 text-xs font-medium">
+                <span class="font-bold text-blue-600">G</span>
+                <span class="text-slate-500">Buscar en la web o apps...</span>
+              </div>
+              <i data-lucide="mic" class="w-4 h-4 text-blue-600"></i>
+            </div>
+
+            <!-- Dock Inferior -->
+            <div class="bg-white/15 backdrop-blur-md border border-white/20 rounded-3xl p-2.5 flex items-center justify-around">
+              <button onclick="AndroidOS.openApp('browser')" class="w-11 h-11 rounded-2xl bg-blue-600 flex items-center justify-center shadow"><i data-lucide="globe" class="w-5 h-5"></i></button>
+              <button onclick="AndroidOS.openApp('files')" class="w-11 h-11 rounded-2xl bg-amber-500 flex items-center justify-center shadow"><i data-lucide="folder" class="w-5 h-5"></i></button>
+              <button onclick="AndroidOS.openApp('camera')" class="w-11 h-11 rounded-2xl bg-rose-500 flex items-center justify-center shadow"><i data-lucide="camera" class="w-5 h-5"></i></button>
+              <button onclick="AndroidOS.openApp('settings')" class="w-11 h-11 rounded-2xl bg-slate-700 flex items-center justify-center shadow"><i data-lucide="settings" class="w-5 h-5"></i></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- CONTENEDOR DE APP ANDROID ABIERTA -->
+        <div id="android-app-container" class="hidden absolute inset-x-0 top-8 bottom-10 bg-slate-50 text-slate-900 z-30 flex flex-col overflow-hidden">
+          <!-- Cabecera de App Android -->
+          <div class="h-11 bg-white border-b border-slate-200 px-4 flex items-center justify-between shrink-0">
+            <div class="flex items-center gap-2">
+              <button onclick="AndroidOS.goHome()" class="p-1 rounded-lg hover:bg-slate-100 text-slate-600">
+                <i data-lucide="arrow-left" class="w-4 h-4"></i>
+              </button>
+              <h3 id="android-app-title" class="text-sm font-bold text-slate-800">Aplicación</h3>
+            </div>
+            <button onclick="AndroidOS.goHome()" class="text-xs text-emerald-700 font-semibold">Cerrar</button>
+          </div>
+          <!-- Cuerpo dinámico de App Android -->
+          <div id="android-app-body" class="flex-1 overflow-y-auto p-4"></div>
+        </div>
+
+        <!-- BARRA DE NAVEGACIÓN ANDROID (Atrás, Inicio, Recientes) -->
+        <div class="h-10 bg-black/40 backdrop-blur-md flex items-center justify-around px-8 z-40 shrink-0">
+          <button onclick="AndroidOS.goBack()" title="Atrás" class="p-2 rounded-full hover:bg-white/15 active:scale-90 transition">
+            <i data-lucide="chevron-left" class="w-5 h-5"></i>
+          </button>
+          <button onclick="AndroidOS.goHome()" title="Inicio" class="p-2 rounded-full hover:bg-white/15 active:scale-90 transition">
+            <div class="w-4 h-4 rounded-full border-2 border-white"></div>
+          </button>
+          <button onclick="AndroidOS.showRecents()" title="Aplicaciones recientes" class="p-2 rounded-full hover:bg-white/15 active:scale-90 transition">
+            <div class="w-3.5 h-3.5 rounded-xs border-2 border-white"></div>
+          </button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL GLOBAL DE UNIDAD ÓPTICA / EXPLORADOR DE ISO (HOT-SWAP)          -->
+  <!-- ===================================================================== -->
+  <div id="iso-drive-modal" class="hidden fixed inset-0 z-[10000] modal-backdrop flex items-center justify-center p-4">
+    <div class="bg-white text-slate-800 rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[86vh]">
+      <!-- Cabecera Modal -->
+      <div class="px-5 py-4 bg-slate-900 text-white flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center">
+            <i data-lucide="disc" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold">Unidad Óptica Virtual &amp; Inspector ISO</h3>
+            <p class="text-[11px] text-slate-400">Montaje en caliente para Windows (D:) y Android (/mnt/iso)</p>
+          </div>
+        </div>
+        <button onclick="ISODriveModal.close()" class="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Cuerpo Modal -->
+      <div class="p-5 overflow-y-auto space-y-4 text-xs">
+        <!-- Controles de carga / generación -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <label class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-xl flex items-center justify-center gap-2 font-semibold transition">
+            <i data-lucide="upload" class="w-4 h-4"></i>
+            <span>Cargar .ISO / .IMG / .APK</span>
+            <input type="file" accept=".iso,.apk,.img,.qcow2,.bin" class="hidden" onchange="VMManager.handleFileSelect(event); ISODriveModal.render();">
+          </label>
+          <button onclick="ISOParser.createDemoISO('windows'); ISODriveModal.render();" class="bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 p-3 rounded-xl flex items-center justify-center gap-1.5 font-semibold transition">
+            <i data-lucide="monitor" class="w-4 h-4 text-sky-600"></i>
+            <span>ISO Prueba Win11</span>
+          </button>
+          <button onclick="ISOParser.createDemoISO('android'); ISODriveModal.render();" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 p-3 rounded-xl flex items-center justify-center gap-1.5 font-semibold transition">
+            <i data-lucide="smartphone" class="w-4 h-4 text-emerald-600"></i>
+            <span>ISO Prueba Android</span>
+          </button>
+        </div>
+
+        <!-- Información técnica del disco actual -->
+        <div id="modal-iso-details" class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-1 font-mono text-[11px]"></div>
+
+        <!-- Tabla de archivos / entradas detectadas dentro de la ISO -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-bold text-slate-700">Contenido / Estructura Detectada en el Medio</span>
+            <span id="modal-iso-count" class="text-[11px] text-slate-500">0 elementos</span>
+          </div>
+          <div id="modal-iso-entries" class="border border-slate-200 rounded-xl divide-y divide-slate-100 max-h-56 overflow-y-auto bg-white"></div>
+        </div>
+      </div>
+
+      <!-- Pie Modal -->
+      <div class="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs">
+        <button onclick="VMManager.clearMountedFile(); ISODriveModal.render();" class="px-3 py-1.5 rounded-lg text-rose-600 hover:bg-rose-50 font-semibold transition">
+          Expulsar disco
+        </button>
+        <button onclick="ISODriveModal.close()" class="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold transition">
+          Listo
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Contenedor de Notificaciones Toast -->
+  <div id="toast-container" class="fixed bottom-14 right-4 z-[99999] flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- ===================================================================== -->
+  <!-- LÓGICA JAVASCRIPT DEL HIPERVISOR, PARSER ISO, WINDOWS 11 Y ANDROID 14 -->
+  <!-- ===================================================================== -->
+  <script>
+    // =========================================================================
+    // MOTOR REAL DE LECTURA Y GENERACIÓN DE ARCHIVOS ISO (ISO 9660 + DEMO ISO)
+    // =========================================================================
+    const ISOParser = {
+      defaultEntries(osType = 'windows') {
+        if (osType === 'android') {
+          return [
+            { name: 'kernel', type: 'FILE', size: '18.4 MB', action: 'kernel' },
+            { name: 'initrd.img', type: 'FILE', size: '24.1 MB', action: 'initrd' },
+            { name: 'system.sfs', type: 'FILE', size: '1.42 GB', action: 'system' },
+            { name: 'ramdisk.img', type: 'FILE', size: '9.8 MB', action: 'ramdisk' },
+            { name: 'HyperVM_Toolkit.apk', type: 'APK', size: '12.5 MB', action: 'install-apk' }
+          ];
+        }
+        return [
+          { name: 'bootmgr.efi', type: 'FILE', size: '1.6 MB', action: 'boot' },
+          { name: 'sources', type: 'DIR', size: '<DIR>', action: 'dir' },
+          { name: 'setup.exe', type: 'EXE', size: '4.2 MB', action: 'run-setup' },
+          { name: 'install.wim', type: 'FILE', size: '4.18 GB', action: 'wim' },
+          { name: 'HyperVM_GuestTools.msi', type: 'MSI', size: '18.7 MB', action: 'install-tools' }
+        ];
+      },
+
+      // Lee de forma segura sectores clave de un archivo File usando File.slice()
+      async inspectFile(file) {
+        const sizeBytes = file.size;
+        const sizeFormatted = sizeBytes >= 1024 * 1024 * 1024
+          ? (sizeBytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB'
+          : (sizeBytes / (1024 * 1024)).toFixed(2) + ' MB';
+
+        let volumeId = file.name.replace(/\.[^/.]+$/, '').toUpperCase().slice(0, 32) || 'VIRTUAL_MEDIA';
+        let fsFormat = file.name.toLowerCase().endsWith('.apk')
+          ? 'Android Package (ZIP / DEX)'
+          : file.name.toLowerCase().endsWith('.img')
+          ? 'Raw Disk Image (.IMG)'
+          : 'ISO 9660 / UDF Optical Image';
+        let entries = [];
+        let signatureHex = 'N/A';
+
+        try {
+          // Leer cabecera inicial (primeros 64 bytes) para firma mágica
+          const headBuf = await file.slice(0, Math.min(64, sizeBytes)).arrayBuffer();
+          const headBytes = new Uint8Array(headBuf);
+          signatureHex = Array.from(headBytes.slice(0, 8))
+            .map(b => b.toString(16).padStart(2, '0').toUpperCase())
+            .join(' ');
+
+          // Sector 16 en ISO 9660 comienza en byte 32768 (0x8000)
+          const pvdOffset = 16 * 2048;
+          if (sizeBytes >= pvdOffset + 128) {
+            const sectorBuf = await file.slice(pvdOffset, pvdOffset + 2048).arrayBuffer();
+            const sector = new Uint8Array(sectorBuf);
+            const decoder = new TextDecoder('ascii');
+            const stdId = decoder.decode(sector.slice(1, 6));
+
+            if (stdId === 'CD001') {
+              fsFormat = sector[0] === 1 ? 'ISO 9660 Primary Volume (CD001)' : `ISO 9660 Descriptor Type ${sector[0]}`;
+              // Volume Identifier está en bytes 40..72 (32 bytes)
+              const rawLabel = decoder.decode(sector.slice(40, 72)).trim();
+              if (rawLabel) volumeId = rawLabel;
+
+              // Intentar leer entradas ASCII legibles en el sector de directorio o alrededores
+              const extraBuf = await file.slice(pvdOffset + 2048, Math.min(sizeBytes, pvdOffset + 2048 * 8)).arrayBuffer();
+              const extraBytes = new Uint8Array(extraBuf);
+              const textScan = decoder.decode(extraBytes).replace(/[^\x20-\x7E]/g, ' ');
+              const matches = textScan.match(/[A-Za-z0-9_.-]{3,28}\.(exe|msi|apk|img|wim|iso|efi|bin|txt|cfg)/gi) || [];
+              const uniqueMatches = [...new Set(matches)].slice(0, 12);
+
+              entries = uniqueMatches.map(fname => ({
+                name: fname,
+                type: fname.toLowerCase().endsWith('.apk') ? 'APK' : fname.toLowerCase().endsWith('.exe') ? 'EXE' : 'FILE',
+                size: 'Sector ISO 9660',
+                action: fname.toLowerCase().endsWith('.apk') ? 'install-apk' : 'inspect-file'
+              }));
+            }
+          }
+        } catch (err) {
+          // Si hay error de lectura parcial, mantenemos metadatos seguros del archivo
+        }
+
+        if (entries.length === 0) {
+          const isAnd = file.name.toLowerCase().includes('android') || file.name.toLowerCase().endsWith('.apk');
+          entries = this.defaultEntries(isAnd ? 'android' : 'windows');
+        }
+
+        return {
+          name: file.name,
+          sizeBytes,
+          sizeFormatted,
+          volumeId,
+          fsFormat,
+          signatureHex,
+          entries,
+          isRealFile: true
+        };
+      },
+
+      // Genera un archivo ISO 9660 mínimo válido en memoria con cabecera CD001 real
+      createDemoISO(osType = 'windows') {
+        const sectorSize = 2048;
+        // Reservamos 20 sectores (40 KB) para system area + PVD + directorio básico
+        const buffer = new Uint8Array(sectorSize * 20);
+        const encoder = new TextEncoder();
+
+        const labelStr = osType === 'android' ? 'ANDROID14_X86_ISO' : 'WIN11_25H2_X64_ISO';
+        const fileName = osType === 'android' ? 'Android-14.0-x86_64-Demo.iso' : 'Windows11-25H2-Pro-Demo.iso';
+
+        // Primary Volume Descriptor en Sector 16 (offset 32768)
+        const pvd = 16 * sectorSize;
+        buffer[pvd] = 1; // Volume Descriptor Type: 1 = Primary
+        buffer.set(encoder.encode('CD001'), pvd + 1);
+        buffer[pvd + 6] = 1; // Version
+
+        const labelBytes = encoder.encode(labelStr.padEnd(32, ' ').slice(0, 32));
+        buffer.set(labelBytes, pvd + 40);
+
+        // Incluir nombres de archivos representativos en sectores posteriores para lectura real
+        const payloadText = osType === 'android'
+          ? 'kernel initrd.img system.sfs ramdisk.img HyperVM_Toolkit.apk'
+          : 'bootmgr.efi setup.exe install.wim HyperVM_GuestTools.msi';
+        buffer.set(encoder.encode(payloadText), 17 * sectorSize);
+
+        const blob = new Blob([buffer], { type: 'application/x-iso9660-image' });
+        const file = new File([blob], fileName, { type: 'application/x-iso9660-image' });
+        VMManager.processFile(file);
+      }
+    };
+
+    // =========================================================================
+    // ESTADO GLOBAL DEL HIPERVISOR
+    // =========================================================================
+    const State = {
+      selectedOS: 'windows', // 'windows' | 'android'
+      activeView: 'manager', // 'manager' | 'boot' | 'windows' | 'android'
+      specs: {
+        cpu: 4,
+        ram: 8,
+        disk: 64,
+        gpu: true
+      },
+      mountedFile: {
+        name: 'Win11_24H2_Spanish_x64.iso',
+        sizeFormatted: '4.82 GB (Base)',
+        volumeId: 'WIN11_24H2_X64',
+        fsFormat: 'ISO 9660 + El Torito UEFI',
+        signatureHex: '33 C0 8E D0 BC 00 7C FB',
+        entries: ISOParser.defaultEntries('windows'),
+        isRealFile: false
+      },
+      installedAppsWin: ['Explorador', 'Edge', 'Terminal', 'Bloc de notas'],
+      installedApks: [
+        { name: 'WhatsApp Messenger', pkg: 'com.whatsapp', version: '2.26.21', size: '68 MB' },
+        { name: 'Spotify Music', pkg: 'com.spotify.music', version: '8.9.84', size: '54 MB' }
+      ],
+      notepadContent: `Bienvenido a HyperVM Studio — Windows 11 Pro (24H2 ISO)\n-------------------------------------------------------------\nEsta máquina virtual permite insertar, leer e inspeccionar archivos ISO reales.\n\nPuedes:\n- Montar o cambiar archivos .ISO / .IMG / .APK en caliente desde la barra superior.\n- Inspeccionar sectores ISO 9660 y archivos internos del disco.\n- Ver la unidad D: en el Explorador de Windows o usar 'dir d:' en PowerShell.`
+    };
+
+    // =========================================================================
+    // UTILIDADES GENERALES (Toast, Relojes, Telemetría, Sincronización ISO)
+    // =========================================================================
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const el = document.createElement('div');
+      const colors = {
+        info: 'bg-slate-900 text-white border-slate-700',
+        success: 'bg-emerald-900 text-emerald-50 border-emerald-700',
+        warning: 'bg-amber-900 text-amber-50 border-amber-700'
+      };
+      el.className = `toast-anim px-4 py-2.5 rounded-xl border shadow-xl text-xs font-medium flex items-center gap-2 ${colors[type] || colors.info}`;
+      el.innerHTML = `<i data-lucide="info" class="w-4 h-4 text-cyan-400 shrink-0"></i><span>${message}</span>`;
+      container.appendChild(el);
+      lucide.createIcons({ nodes: [el] });
+      setTimeout(() => {
+        el.style.opacity = '0';
+        el.style.transition = 'opacity 0.25s';
+        setTimeout(() => el.remove(), 260);
+      }, 3200);
+    }
+
+    function syncISOUI() {
+      const iso = State.mountedFile;
+      const pill = document.getElementById('hv-iso-pill');
+      const andPill = document.getElementById('and-iso-pill');
+      const winBadge = document.getElementById('win-iso-badge-name');
+      const statusTxt = document.getElementById('mounted-file-status');
+      const badge = document.getElementById('mounted-file-badge');
+      const badgeName = document.getElementById('mounted-file-name');
+
+      const metaLabel = document.getElementById('iso-meta-label');
+      const metaFs = document.getElementById('iso-meta-fs');
+      const metaSize = document.getElementById('iso-meta-size');
+      const metaFiles = document.getElementById('iso-meta-files');
+
+      if (iso) {
+        if (pill) pill.textContent = iso.name;
+        if (andPill) andPill.textContent = iso.name;
+        if (winBadge) winBadge.textContent = iso.name;
+        if (statusTxt) {
+          statusTxt.textContent = `Medio montado: ${iso.name} (${iso.sizeFormatted}) — Etiqueta: ${iso.volumeId}`;
+        }
+        if (badge && badgeName) {
+          badgeName.textContent = `${iso.name} (${iso.sizeFormatted})`;
+          badge.classList.remove('hidden');
+          badge.classList.add('flex');
+        }
+        if (metaLabel) metaLabel.textContent = iso.volumeId;
+        if (metaFs) metaFs.textContent = iso.fsFormat;
+        if (metaSize) metaSize.textContent = iso.sizeFormatted;
+        if (metaFiles) metaFiles.textContent = `${iso.entries.length} entradas detectadas`;
+      } else {
+        if (pill) pill.textContent = 'Insertar ISO';
+        if (andPill) andPill.textContent = 'ISO / APK';
+        if (winBadge) winBadge.textContent = 'Sin disco montado (Expulsado)';
+        if (statusTxt) {
+          statusTxt.textContent = 'Unidad óptica vacía. Inserta un archivo .ISO, .IMG o .APK o genera una ISO de prueba.';
+        }
+        if (badge) {
+          badge.classList.add('hidden');
+          badge.classList.remove('flex');
+        }
+        if (metaLabel) metaLabel.textContent = 'SIN_DISCO';
+        if (metaFs) metaFs.textContent = 'Bandeja vacía';
+        if (metaSize) metaSize.textContent = '0 MB';
+        if (metaFiles) metaFiles.textContent = '0 entradas';
+      }
+    }
+
+    function updateClocksAndTelemetry() {
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      const dateStr = now.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const longDate = now.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+
+      const winTime = document.getElementById('win-clock-time');
+      const winDate = document.getElementById('win-clock-date');
+      if (winTime) winTime.textContent = timeStr;
+      if (winDate) winDate.textContent = dateStr;
+
+      const andStatus = document.getElementById('and-status-time');
+      const andLock = document.getElementById('and-lock-time');
+      const andLockDate = document.getElementById('and-lock-date');
+      const andShadeDate = document.getElementById('and-shade-date');
+      if (andStatus) andStatus.textContent = timeStr;
+      if (andLock) andLock.textContent = timeStr;
+      if (andLockDate) andLockDate.textContent = longDate.charAt(0).toUpperCase() + longDate.slice(1);
+      if (andShadeDate) andShadeDate.textContent = longDate.charAt(0).toUpperCase() + longDate.slice(1);
+
+      const cpuMeter = document.getElementById('hv-cpu-meter');
+      const ramMeter = document.getElementById('hv-ram-meter');
+      if (State.activeView === 'manager') {
+        cpuMeter.textContent = Math.floor(2 + Math.random() * 4) + '%';
+        ramMeter.textContent = `0.8 / ${State.specs.ram} GB`;
+      } else {
+        const baseCpu = State.activeView === 'windows' ? 14 : 9;
+        const cpuVal = Math.min(98, Math.floor(baseCpu + Math.random() * 16));
+        const usedRam = (State.specs.ram * (State.activeView === 'windows' ? 0.44 : 0.32) + Math.random() * 0.3).toFixed(1);
+        cpuMeter.textContent = cpuVal + '%';
+        ramMeter.textContent = `${usedRam} / ${State.specs.ram} GB`;
+      }
+    }
+
+    // =========================================================================
+    // MODAL DE UNIDAD ÓPTICA E INSPECTOR ISO
+    // =========================================================================
+    const ISODriveModal = {
+      open() {
+        this.render();
+        document.getElementById('iso-drive-modal').classList.remove('hidden');
+      },
+      close() {
+        document.getElementById('iso-drive-modal').classList.add('hidden');
+      },
+      render() {
+        const details = document.getElementById('modal-iso-details');
+        const entriesBox = document.getElementById('modal-iso-entries');
+        const countEl = document.getElementById('modal-iso-count');
+        const iso = State.mountedFile;
+
+        if (!iso) {
+          details.innerHTML = `<div class="text-slate-500">No hay ningún archivo ISO / IMG / APK montado en este momento.</div>`;
+          entriesBox.innerHTML = `<div class="p-4 text-center text-slate-400">Inserta un archivo o genera una ISO de prueba para ver sus entradas.</div>`;
+          countEl.textContent = '0 elementos';
+          return;
+        }
+
+        details.innerHTML = `
+          <div><span class="text-slate-400">Archivo:</span> <strong class="text-slate-800">${iso.name}</strong></div>
+          <div><span class="text-slate-400">Etiqueta Volumen:</span> <strong class="text-blue-700">${iso.volumeId}</strong> · <span class="text-slate-400">Tamaño:</span> <strong>${iso.sizeFormatted}</strong></div>
+          <div><span class="text-slate-400">Sistema:</span> ${iso.fsFormat} · <span class="text-slate-400">Header Hex:</span> ${iso.signatureHex}</div>
+        `;
+
+        countEl.textContent = `${iso.entries.length} elementos`;
+        entriesBox.innerHTML = iso.entries.map(item => `
+          <div class="px-3.5 py-2.5 flex items-center justify-between hover:bg-slate-50">
+            <div class="flex items-center gap-2.5">
+              <i data-lucide="${item.type === 'DIR' ? 'folder' : item.type === 'APK' ? 'package' : 'file-code'}" class="w-4 h-4 text-blue-600"></i>
+              <span class="font-mono font-medium text-slate-800">${item.name}</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-[11px] text-slate-400 font-mono">${item.size}</span>
+              <button onclick="ISODriveModal.executeEntry('${item.name}', '${item.type}')" class="px-2.5 py-1 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-[11px]">
+                ${item.type === 'APK' ? 'Instalar' : 'Montar/Ejecutar'}
+              </button>
+            </div>
+          </div>
+        `).join('');
+        lucide.createIcons({ nodes: [entriesBox] });
+      },
+      executeEntry(name, type) {
+        if (type === 'APK' || name.toLowerCase().endsWith('.apk')) {
+          State.installedApks.unshift({
+            name: name.replace(/\.apk$/i, ''),
+            pkg: 'com.iso.' + name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase(),
+            version: '1.0 (Desde ISO)',
+            size: '12.5 MB'
+          });
+          showToast(`Paquete "${name}" instalado en Android 14 desde el ISO.`, 'success');
+        } else {
+          showToast(`Elemento "${name}" listo en unidad D: (Windows) / /mnt/iso (Android).`, 'info');
+        }
+      }
+    };
+
+    // =========================================================================
+    // GESTOR DE MÁQUINAS VIRTUALES (VM MANAGER)
+    // =========================================================================
+    const VMManager = {
+      selectOS(os) {
+        State.selectedOS = os;
+        const cardWin = document.getElementById('card-vm-windows');
+        const cardAnd = document.getElementById('card-vm-android');
+        const checkWin = document.getElementById('check-windows');
+        const checkAnd = document.getElementById('check-android');
+        const label = document.getElementById('config-os-label');
+
+        if (os === 'windows') {
+          cardWin.className = 'cursor-pointer bg-white rounded-2xl p-5 border-2 border-blue-600 shadow-md transition-all relative overflow-hidden';
+          cardAnd.className = 'cursor-pointer bg-white rounded-2xl p-5 border-2 border-slate-200 hover:border-emerald-400 shadow-sm transition-all relative overflow-hidden';
+          checkWin.className = 'w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0';
+          checkAnd.className = 'w-6 h-6 rounded-full border-2 border-slate-300 text-transparent flex items-center justify-center shrink-0';
+          label.textContent = 'Windows 11 Pro ISO';
+          label.className = 'text-xs font-bold px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700';
+        } else {
+          cardAnd.className = 'cursor-pointer bg-white rounded-2xl p-5 border-2 border-emerald-600 shadow-md transition-all relative overflow-hidden';
+          cardWin.className = 'cursor-pointer bg-white rounded-2xl p-5 border-2 border-slate-200 hover:border-blue-400 shadow-sm transition-all relative overflow-hidden';
+          checkAnd.className = 'w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0';
+          checkWin.className = 'w-6 h-6 rounded-full border-2 border-slate-300 text-transparent flex items-center justify-center shrink-0';
+          label.textContent = 'Android OS v14 ISO';
+          label.className = 'text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700';
+        }
+      },
+
+      updateSpecs() {
+        State.specs.cpu = parseInt(document.getElementById('spec-cpu').value);
+        State.specs.ram = parseInt(document.getElementById('spec-ram').value);
+        State.specs.disk = parseInt(document.getElementById('spec-disk').value);
+        State.specs.gpu = document.getElementById('spec-gpu').checked;
+
+        document.getElementById('spec-cpu-val').textContent = `${State.specs.cpu} Núcleos`;
+        document.getElementById('spec-ram-val').textContent = `${State.specs.ram} GB`;
+        document.getElementById('spec-disk-val').textContent = `${State.specs.disk} GB`;
+        updateClocksAndTelemetry();
+      },
+
+      handleDragOver(e) {
+        e.preventDefault();
+        document.getElementById('drop-zone').classList.add('border-blue-500', 'bg-blue-50/70');
+      },
+
+      handleDragLeave(e) {
+        e.preventDefault();
+        document.getElementById('drop-zone').classList.remove('border-blue-500', 'bg-blue-50/70');
+      },
+
+      handleDrop(e) {
+        e.preventDefault();
+        document.getElementById('drop-zone').classList.remove('border-blue-500', 'bg-blue-50/70');
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          this.processFile(e.dataTransfer.files[0]);
+        }
+      },
+
+      handleFileSelect(e) {
+        if (e.target.files && e.target.files.length > 0) {
+          this.processFile(e.target.files[0]);
+          e.target.value = '';
+        }
+      },
+
+      async processFile(file) {
+        const parsed = await ISOParser.inspectFile(file);
+        State.mountedFile = parsed;
+
+        const lower = file.name.toLowerCase();
+        if (lower.endsWith('.apk') || lower.includes('android') || lower.includes('bliss')) {
+          this.selectOS('android');
+          if (lower.endsWith('.apk')) {
+            State.installedApks.unshift({
+              name: file.name.replace(/\.apk$/i, ''),
+              pkg: 'com.custom.' + file.name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase(),
+              version: '1.0.0 (Local)',
+              size: parsed.sizeFormatted
+            });
+          }
+          showToast(`Medio "${file.name}" (${parsed.volumeId}) montado para Android.`, 'success');
+        } else {
+          this.selectOS('windows');
+          showToast(`ISO "${file.name}" (${parsed.volumeId}) leída y montada en unidad D:.`, 'success');
+        }
+
+        syncISOUI();
+        if (!document.getElementById('iso-drive-modal').classList.contains('hidden')) {
+          ISODriveModal.render();
+        }
+      },
+
+      clearMountedFile() {
+        State.mountedFile = null;
+        document.getElementById('file-iso-input').value = '';
+        syncISOUI();
+        showToast('Unidad óptica expulsada.');
+      }
+    };
+
+    // =========================================================================
+    // CONTROLADOR DEL HIPERVISOR (BOOT VINCULADO A ISO, CAMBIO RÁPIDO)
+    // =========================================================================
+    const Hypervisor = {
+      bootTimer: null,
+
+      switchView(viewName) {
+        ['view-vm-manager', 'view-boot-screen', 'view-windows', 'view-android'].forEach(id => {
+          document.getElementById(id).classList.add('hidden');
+        });
+        document.getElementById(viewName).classList.remove('hidden');
+      },
+
+      updateTopBar(mode) {
+        const dot = document.getElementById('hv-status-dot');
+        const text = document.getElementById('hv-status-text');
+        const rebootBtn = document.getElementById('hv-reboot-btn');
+
+        const btnMgr = document.getElementById('nav-btn-manager');
+        const btnWin = document.getElementById('nav-btn-win');
+        const btnAnd = document.getElementById('nav-btn-and');
+
+        [btnMgr, btnWin, btnAnd].forEach(b => {
+          b.className = 'px-3 py-1 rounded-md font-medium transition text-slate-400 hover:text-white flex items-center gap-1.5';
+        });
+
+        const isoTag = State.mountedFile ? ` · ISO: ${State.mountedFile.name}` : '';
+
+        if (mode === 'manager') {
+          dot.className = 'w-2 h-2 rounded-full bg-amber-400';
+          text.textContent = 'Gestor de VMs (En espera)';
+          rebootBtn.disabled = true;
+          btnMgr.className = 'px-3 py-1 rounded-md font-medium transition bg-slate-700 text-white flex items-center gap-1.5';
+        } else if (mode === 'windows') {
+          dot.className = 'w-2 h-2 rounded-full bg-sky-400 animate-pulse';
+          text.textContent = `Windows ISO (${State.specs.cpu} vCPU · ${State.specs.ram}GB)${isoTag}`;
+          rebootBtn.disabled = false;
+          btnWin.className = 'px-3 py-1 rounded-md font-medium transition bg-sky-600 text-white flex items-center gap-1.5';
+        } else if (mode === 'android') {
+          dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+          text.textContent = `Android ISO (${State.specs.cpu} vCPU · ${State.specs.ram}GB)${isoTag}`;
+          rebootBtn.disabled = false;
+          btnAnd.className = 'px-3 py-1 rounded-md font-medium transition bg-emerald-600 text-white flex items-center gap-1.5';
+        }
+      },
+
+      bootSelectedVM() {
+        const target = State.selectedOS;
+        State.activeView = 'boot';
+        this.switchView('view-boot-screen');
+
+        const logoContainer = document.getElementById('boot-logo-container');
+        const title = document.getElementById('boot-title');
+        const subtitle = document.getElementById('boot-subtitle');
+        const bar = document.getElementById('boot-progress-bar');
+        const logBox = document.getElementById('boot-bios-log');
+
+        bar.style.width = '0%';
+        logBox.innerHTML = '';
+
+        const isoInfo = State.mountedFile
+          ? `${State.mountedFile.name} [${State.mountedFile.volumeId} · ${State.mountedFile.sizeFormatted}]`
+          : 'Imagen Base Virtual (Sin ISO externa)';
+
+        if (target === 'windows') {
+          logoContainer.innerHTML = `
+            <svg class="w-16 h-16" viewBox="0 0 24 24">
+              <path fill="#0078D4" d="M2 3.5h9.2v9.2H2V3.5z"/>
+              <path fill="#28A8EA" d="M12.8 3.5H22v9.2h-9.2V3.5z"/>
+              <path fill="#0078D4" d="M2 14.3h9.2v9.2H2v-9.2z"/>
+              <path fill="#50E6FF" d="M12.8 14.3H22v9.2h-9.2v-9.2z"/>
+            </svg>`;
+          title.textContent = 'UEFI Boot Manager — Windows ISO';
+          bar.className = 'h-full bg-sky-400 transition-all duration-300 w-0';
+        } else {
+          logoContainer.innerHTML = `
+            <div class="w-16 h-16 rounded-3xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400">
+              <i data-lucide="smartphone" class="w-9 h-9"></i>
+            </div>`;
+          lucide.createIcons({ nodes: [logoContainer] });
+          title.textContent = 'GRUB2 / Android-x86 ISO Bootloader';
+          bar.className = 'h-full bg-emerald-400 transition-all duration-300 w-0';
+        }
+
+        const steps = target === 'windows' ? [
+          `[UEFI] HyperVM BIOS v2.8 — ${State.specs.cpu} vCPU @ 3.80GHz`,
+          `[ISO-MOUNT] Medio: ${isoInfo}`,
+          `[FS] Formato detectado: ${State.mountedFile ? State.mountedFile.fsFormat : 'ISO 9660 UEFI'}`,
+          `[TPM] Módulo TPM 2.0 y Secure Boot activos`,
+          `[BOOT] Cargando winload.efi desde unidad óptica...`
+        ] : [
+          `[GRUB2] Android-x86 / AOSP 14 ISO Boot Entry`,
+          `[ISO-MOUNT] Medio: ${isoInfo}`,
+          `[KERNEL] Linux 6.1-android14 (${State.specs.cpu} vCPU · ${State.specs.ram}GB RAM)`,
+          `[GPU] VirtIO-GPU Vulkan inicializado`,
+          `[ZYGOTE] Montando /mnt/iso y lanzando SystemUI...`
+        ];
+
+        let step = 0;
+        clearInterval(this.bootTimer);
+        this.bootTimer = setInterval(() => {
+          if (step < steps.length) {
+            const p = document.createElement('div');
+            p.textContent = steps[step];
+            logBox.appendChild(p);
+            logBox.scrollTop = logBox.scrollHeight;
+            subtitle.textContent = steps[step];
+            bar.style.width = `${((step + 1) / steps.length) * 100}%`;
+            step++;
+          } else {
+            clearInterval(this.bootTimer);
+            setTimeout(() => {
+              State.activeView = target;
+              this.switchView(target === 'windows' ? 'view-windows' : 'view-android');
+              this.updateTopBar(target);
+              syncISOUI();
+              if (target === 'windows' && document.getElementById('win-windows-layer').children.length === 0) {
+                WinOS.openApp('explorer');
+              }
+            }, 350);
+          }
+        }, 360);
+      },
+
+      quickSwitch(os) {
+        if (State.activeView === os) return;
+        VMManager.selectOS(os);
+        this.bootSelectedVM();
+      },
+
+      rebootCurrentVM() {
+        if (State.activeView === 'windows' || State.activeView === 'android') {
+          showToast('Reiniciando máquina virtual con el ISO actual...', 'warning');
+          this.bootSelectedVM();
+        }
+      },
+
+      goHome() {
+        clearInterval(this.bootTimer);
+        State.activeView = 'manager';
+        this.switchView('view-vm-manager');
+        this.updateTopBar('manager');
+      },
+
+      takeScreenshot() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1280;
+        canvas.height = 720;
+        const ctx = canvas.getContext('2d');
+
+        const grad = ctx.createLinearGradient(0, 0, 1280, 720);
+        if (State.activeView === 'windows') {
+          grad.addColorStop(0, '#0078D4');
+          grad.addColorStop(1, '#071930');
+        } else if (State.activeView === 'android') {
+          grad.addColorStop(0, '#132a1c');
+          grad.addColorStop(1, '#2d6a4f');
+        } else {
+          grad.addColorStop(0, '#0f172a');
+          grad.addColorStop(1, '#1e293b');
+        }
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 1280, 720);
+
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.fillRect(40, 40, 1200, 640);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 36px Inter, sans-serif';
+        const titleMap = {
+          windows: 'Captura VM: Windows ISO Workstation',
+          android: 'Captura VM: Android ISO Emulator',
+          manager: 'Captura: HyperVM Studio Workstation'
+        };
+        ctx.fillText(titleMap[State.activeView] || 'HyperVM Studio', 80, 120);
+
+        ctx.font = '20px monospace';
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(`Fecha: ${new Date().toLocaleString('es-ES')}`, 80, 170);
+        ctx.fillText(`Hardware asignado: ${State.specs.cpu} vCPU | ${State.specs.ram} GB RAM | ${State.specs.disk} GB NVMe`, 80, 210);
+        if (State.mountedFile) {
+          ctx.fillText(`ISO montada: ${State.mountedFile.name} (${State.mountedFile.volumeId} · ${State.mountedFile.sizeFormatted})`, 80, 250);
+        }
+
+        const link = document.createElement('a');
+        link.download = `HyperVM_${State.activeView}_${Date.now()}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        showToast('Captura de pantalla guardada como imagen PNG.', 'success');
+      }
+    };
+
+    // =========================================================================
+    // ENTORNO EMULADO DE WINDOWS 11 PRO (VENTANAS, UNIDAD D:, POWERSHELL)
+    // =========================================================================
+    const WinOS = {
+      zIndexCounter: 100,
+      openWindows: {},
+
+      appsCatalog: [
+        { id: 'explorer', name: 'Explorador', icon: 'folder', color: 'text-amber-500' },
+        { id: 'browser', name: 'Edge', icon: 'globe', color: 'text-sky-600' },
+        { id: 'terminal', name: 'Terminal', icon: 'terminal', color: 'text-slate-800' },
+        { id: 'notepad', name: 'Bloc de notas', icon: 'file-text', color: 'text-cyan-600' },
+        { id: 'settings', name: 'Configuración', icon: 'settings', color: 'text-slate-600' },
+        { id: 'calculator', name: 'Calculadora', icon: 'calculator', color: 'text-blue-600' }
+      ],
+
+      init() {
+        this.renderStartApps(this.appsCatalog);
+      },
+
+      renderStartApps(list) {
+        const grid = document.getElementById('win-start-apps-grid');
+        grid.innerHTML = list.map(app => `
+          <button onclick="WinOS.openApp('${app.id}'); WinOS.toggleStartMenu(false)"
+                  class="flex flex-col items-center gap-1.5 p-2.5 rounded-xl hover:bg-white/80 transition">
+            <div class="w-9 h-9 rounded-xl bg-white shadow-xs border border-slate-200/70 flex items-center justify-center">
+              <i data-lucide="${app.icon}" class="w-5 h-5 ${app.color}"></i>
+            </div>
+            <span class="text-[11px] font-medium text-slate-700 truncate w-full text-center">${app.name}</span>
+          </button>
+        `).join('');
+        lucide.createIcons({ nodes: [grid] });
+      },
+
+      filterStartApps(query) {
+        const filtered = this.appsCatalog.filter(a => a.name.toLowerCase().includes(query.toLowerCase()));
+        this.renderStartApps(filtered);
+      },
+
+      toggleStartMenu(forceState) {
+        const menu = document.getElementById('win-start-menu');
+        const qs = document.getElementById('win-quick-settings');
+        qs.classList.add('hidden');
+        if (typeof forceState === 'boolean') {
+          menu.classList.toggle('hidden', !forceState);
+        } else {
+          menu.classList.toggle('hidden');
+        }
+      },
+
+      toggleQuickSettings(forceState) {
+        const qs = document.getElementById('win-quick-settings');
+        const menu = document.getElementById('win-start-menu');
+        menu.classList.add('hidden');
+        if (typeof forceState === 'boolean') {
+          qs.classList.toggle('hidden', !forceState);
+        } else {
+          qs.classList.toggle('hidden');
+        }
+      },
+
+      setBrightness(val) {
+        document.getElementById('win-brightness-val').textContent = val + '%';
+        document.getElementById('view-windows').style.filter = `brightness(${val}%)`;
+      },
+
+      selectIcon(el) {
+        document.querySelectorAll('.win-desktop-icon').forEach(i => i.classList.remove('bg-white/25'));
+        el.classList.add('bg-white/25');
+      },
+
+      openApp(appId) {
+        // Si ya existe, enfocar y desminimizar
+        if (this.openWindows[appId]) {
+          const winEl = document.getElementById(`win-app-${appId}`);
+          winEl.classList.remove('hidden');
+          this.focusWindow(winEl);
+          return;
+        }
+
+        const appMeta = this.appsCatalog.find(a => a.id === appId) || { id: appId, name: 'Aplicación', icon: 'app-window', color: 'text-blue-600' };
+        const offset = Object.keys(this.openWindows).length * 26;
+        const winEl = document.createElement('div');
+        winEl.id = `win-app-${appId}`;
+        winEl.className = 'win-window pointer-events-auto absolute bg-white/95 backdrop-blur-xl rounded-xl border border-slate-300/80 flex flex-col overflow-hidden text-slate-800';
+        winEl.style.width = appId === 'calculator' ? '320px' : 'min(740px, 92vw)';
+        winEl.style.height = appId === 'calculator' ? '440px' : 'min(470px, 78vh)';
+        winEl.style.left = `calc(50% - ${appId === 'calculator' ? 160 : 350}px + ${offset}px)`;
+        winEl.style.top = `calc(10% + ${offset}px)`;
+        winEl.style.zIndex = ++this.zIndexCounter;
+        winEl.dataset.maximized = 'false';
+
+        winEl.addEventListener('mousedown', () => this.focusWindow(winEl));
+
+        winEl.innerHTML = `
+          <!-- Barra de Título Arrastrable -->
+          <div class="win-titlebar h-9 bg-slate-100/90 border-b border-slate-200/80 px-3 flex items-center justify-between cursor-move shrink-0">
+            <div class="flex items-center gap-2 text-xs font-semibold text-slate-700 pointer-events-none">
+              <i data-lucide="${appMeta.icon}" class="w-4 h-4 ${appMeta.color}"></i>
+              <span>${appMeta.name}</span>
+            </div>
+            <div class="flex items-center gap-1">
+              <button onclick="WinOS.minimizeWindow('${appId}')" title="Minimizar" class="w-7 h-6 rounded hover:bg-slate-200 flex items-center justify-center text-slate-600">
+                <i data-lucide="minus" class="w-3.5 h-3.5"></i>
+              </button>
+              <button onclick="WinOS.maximizeWindow('${appId}')" title="Maximizar" class="w-7 h-6 rounded hover:bg-slate-200 flex items-center justify-center text-slate-600">
+                <i data-lucide="square" class="w-3 h-3"></i>
+              </button>
+              <button onclick="WinOS.closeWindow('${appId}')" title="Cerrar" class="w-7 h-6 rounded hover:bg-rose-500 hover:text-white flex items-center justify-center text-slate-600 transition">
+                <i data-lucide="x" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+          </div>
+          <!-- Contenido de la Ventana -->
+          <div class="flex-1 overflow-auto bg-white flex flex-col">
+            ${this.getAppContent(appId)}
+          </div>
+        `;
+
+        document.getElementById('win-windows-layer').appendChild(winEl);
+        this.openWindows[appId] = appMeta;
+        this.makeDraggable(winEl);
+        this.renderTaskbarRunning();
+        lucide.createIcons({ nodes: [winEl] });
+
+        if (appId === 'terminal') {
+          const input = winEl.querySelector('#win-term-input');
+          if (input) input.focus();
+        }
+      },
+
+      focusWindow(winEl) {
+        winEl.style.zIndex = ++this.zIndexCounter;
+      },
+
+      minimizeWindow(appId) {
+        const winEl = document.getElementById(`win-app-${appId}`);
+        if (winEl) winEl.classList.add('hidden');
+      },
+
+      maximizeWindow(appId) {
+        const winEl = document.getElementById(`win-app-${appId}`);
+        if (!winEl) return;
+        if (winEl.dataset.maximized === 'false') {
+          winEl.dataset.prevStyle = JSON.stringify({
+            left: winEl.style.left,
+            top: winEl.style.top,
+            width: winEl.style.width,
+            height: winEl.style.height
+          });
+          winEl.style.left = '0px';
+          winEl.style.top = '0px';
+          winEl.style.width = '100%';
+          winEl.style.height = '100%';
+          winEl.classList.remove('rounded-xl');
+          winEl.dataset.maximized = 'true';
+        } else {
+          const prev = JSON.parse(winEl.dataset.prevStyle || '{}');
+          winEl.style.left = prev.left || '10%';
+          winEl.style.top = prev.top || '10%';
+          winEl.style.width = prev.width || '720px';
+          winEl.style.height = prev.height || '460px';
+          winEl.classList.add('rounded-xl');
+          winEl.dataset.maximized = 'false';
+        }
+      },
+
+      closeWindow(appId) {
+        const winEl = document.getElementById(`win-app-${appId}`);
+        if (winEl) winEl.remove();
+        delete this.openWindows[appId];
+        this.renderTaskbarRunning();
+      },
+
+      renderTaskbarRunning() {
+        const container = document.getElementById('win-taskbar-running');
+        container.innerHTML = Object.values(this.openWindows).map(app => `
+          <button onclick="WinOS.openApp('${app.id}')" title="${app.name}"
+                  class="p-2 rounded-lg bg-white/80 hover:bg-white border-b-2 border-blue-600 transition flex items-center gap-1.5 text-xs font-medium text-slate-700">
+            <i data-lucide="${app.icon}" class="w-4 h-4 ${app.color}"></i>
+            <span class="hidden lg:inline">${app.name}</span>
+          </button>
+        `).join('');
+        lucide.createIcons({ nodes: [container] });
+      },
+
+      makeDraggable(winEl) {
+        const bar = winEl.querySelector('.win-titlebar');
+        let isDragging = false, startX, startY, origLeft, origTop;
+
+        const onStart = (clientX, clientY) => {
+          if (winEl.dataset.maximized === 'true') return;
+          isDragging = true;
+          startX = clientX;
+          startY = clientY;
+          origLeft = winEl.offsetLeft;
+          origTop = winEl.offsetTop;
+          this.focusWindow(winEl);
+        };
+
+        const onMove = (clientX, clientY) => {
+          if (!isDragging) return;
+          const dx = clientX - startX;
+          const dy = clientY - startY;
+          winEl.style.left = Math.max(-200, origLeft + dx) + 'px';
+          winEl.style.top = Math.max(0, origTop + dy) + 'px';
+        };
+
+        const onEnd = () => { isDragging = false; };
+
+        bar.addEventListener('mousedown', e => {
+          if (e.target.closest('button')) return;
+          onStart(e.clientX, e.clientY);
+        });
+        window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
+        window.addEventListener('mouseup', onEnd);
+
+        // Soporte táctil
+        bar.addEventListener('touchstart', e => {
+          if (e.target.closest('button')) return;
+          const t = e.touches[0];
+          onStart(t.clientX, t.clientY);
+        }, { passive: true });
+        window.addEventListener('touchmove', e => {
+          if (!isDragging) return;
+          const t = e.touches[0];
+          onMove(t.clientX, t.clientY);
+        }, { passive: true });
+        window.addEventListener('touchend', onEnd);
+      },
+
+      getAppContent(appId) {
+        if (appId === 'explorer') {
+          const iso = State.mountedFile;
+          const mountedDrive = iso ? `
+            <div class="p-3 rounded-xl border border-blue-200 bg-blue-50/70 flex items-center justify-between gap-3">
+              <div class="flex items-center gap-3 min-w-0">
+                <i data-lucide="disc" class="w-8 h-8 text-blue-600 shrink-0"></i>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-slate-800 truncate">Unidad CD/DVD (D:) ${iso.volumeId}</div>
+                  <div class="text-[11px] text-slate-500 truncate">${iso.name} · ${iso.sizeFormatted}</div>
+                </div>
+              </div>
+              <button onclick="ISODriveModal.open()" class="px-2.5 py-1 rounded-lg bg-blue-600 text-white text-[11px] font-semibold shrink-0">Explorar</button>
+            </div>` : `
+            <div class="p-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 flex items-center justify-between gap-3">
+              <div class="flex items-center gap-3">
+                <i data-lucide="disc" class="w-7 h-7 text-slate-400 shrink-0"></i>
+                <div>
+                  <div class="text-xs font-semibold text-slate-600">Unidad CD/DVD (D:) Vacía</div>
+                  <div class="text-[11px] text-slate-400">Inserta un archivo .ISO para montarlo</div>
+                </div>
+              </div>
+              <button onclick="ISODriveModal.open()" class="px-2.5 py-1 rounded-lg bg-slate-800 text-white text-[11px] font-semibold">Insertar ISO</button>
+            </div>`;
+
+          const isoFilesList = iso ? iso.entries.map(e => `
+            <div class="px-3 py-2 flex items-center justify-between text-xs hover:bg-blue-50/50">
+              <span class="font-mono flex items-center gap-2 text-slate-700"><i data-lucide="file-code" class="w-3.5 h-3.5 text-blue-500"></i> D:\\${e.name}</span>
+              <span class="text-[11px] text-slate-400">${e.size}</span>
+            </div>
+          `).join('') : `<div class="p-3 text-slate-400">No hay archivos en D:\\</div>`;
+
+          return `
+            <div class="flex flex-1 h-full text-xs">
+              <!-- Sidebar Explorador -->
+              <div class="w-40 bg-slate-50 border-r border-slate-200 p-2.5 space-y-1 hidden sm:block">
+                <div class="px-2 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-semibold flex items-center gap-2"><i data-lucide="monitor" class="w-4 h-4"></i> Este equipo</div>
+                <div onclick="ISODriveModal.open()" class="cursor-pointer px-2 py-1.5 rounded-lg hover:bg-slate-200/70 text-slate-600 flex items-center gap-2"><i data-lucide="disc" class="w-4 h-4 text-sky-600"></i> Unidad D: (ISO)</div>
+                <div onclick="WinOS.openApp('notepad')" class="cursor-pointer px-2 py-1.5 rounded-lg hover:bg-slate-200/70 text-slate-600 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4 text-sky-500"></i> Documentos</div>
+                <div class="px-2 py-1.5 rounded-lg hover:bg-slate-200/70 text-slate-600 flex items-center gap-2"><i data-lucide="download" class="w-4 h-4 text-emerald-500"></i> Descargas</div>
+              </div>
+              <!-- Área Principal -->
+              <div class="flex-1 p-4 space-y-4 overflow-y-auto">
+                <div class="flex items-center justify-between gap-2 bg-slate-100 px-3 py-1.5 rounded-lg text-slate-600">
+                  <span class="flex items-center gap-1.5"><i data-lucide="chevron-right" class="w-3.5 h-3.5"></i> Este equipo &rsaquo; Dispositivos y unidades</span>
+                  <button onclick="ISODriveModal.open()" class="text-blue-600 font-semibold hover:underline">Cambiar / Montar ISO</button>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div class="p-3 rounded-xl border border-slate-200 hover:bg-slate-50 flex items-center gap-3">
+                    <i data-lucide="hard-drive" class="w-8 h-8 text-sky-600 shrink-0"></i>
+                    <div class="flex-1">
+                      <div class="text-xs font-bold text-slate-800">Disco local (C:)</div>
+                      <div class="w-full h-1.5 bg-slate-200 rounded-full my-1 overflow-hidden">
+                        <div class="h-full bg-sky-600 w-[38%]"></div>
+                      </div>
+                      <div class="text-[11px] text-slate-500">${Math.round(State.specs.disk * 0.62)} GB disponibles de ${State.specs.disk} GB</div>
+                    </div>
+                  </div>
+                  ${mountedDrive}
+                </div>
+
+                <div>
+                  <h4 class="font-bold text-slate-700 mb-2">Contenido detectado en Unidad Óptica (D:\\)</h4>
+                  <div class="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white">
+                    ${isoFilesList}
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        if (appId === 'terminal') {
+          return `
+            <div class="flex-1 bg-[#0c0c0c] text-slate-100 font-mono text-xs p-4 flex flex-col justify-between overflow-y-auto" onclick="document.getElementById('win-term-input').focus()">
+              <div id="win-term-output" class="space-y-1.5 selectable-text">
+                <div class="text-sky-400">Windows PowerShell — HyperVM Virtual Console [Versión 10.0.26100]</div>
+                <div class="text-slate-400">Escribe <span class="text-amber-300">help</span>, <span class="text-amber-300">iso</span> o <span class="text-amber-300">dir d:</span> para inspeccionar el ISO montado.</div>
+                <br>
+              </div>
+              <div class="flex items-center gap-2 pt-2 border-t border-slate-800">
+                <span class="text-emerald-400 font-semibold">PS C:\\Users\\Admin&gt;</span>
+                <input id="win-term-input" type="text" onkeydown="WinOS.handleTerminalCommand(event)"
+                       class="flex-1 bg-transparent text-white focus:outline-none font-mono" autocomplete="off" />
+              </div>
+            </div>
+          `;
+        }
+
+        if (appId === 'notepad') {
+          return `
+            <div class="flex-1 flex flex-col">
+              <div class="bg-slate-50 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between text-xs text-slate-600">
+                <div class="flex items-center gap-3">
+                  <button onclick="WinOS.saveNotepad()" class="hover:text-blue-600 font-medium flex items-center gap-1"><i data-lucide="save" class="w-3.5 h-3.5"></i> Guardar</button>
+                  <button onclick="document.getElementById('win-notepad-area').value = ''" class="hover:text-rose-600">Limpiar</button>
+                </div>
+                <span class="text-[11px] text-slate-400">UTF-8 · Windows (CRLF)</span>
+              </div>
+              <textarea id="win-notepad-area" oninput="State.notepadContent = this.value"
+                        class="flex-1 p-4 font-mono text-xs text-slate-800 focus:outline-none resize-none leading-relaxed">${State.notepadContent}</textarea>
+            </div>
+          `;
+        }
+
+        if (appId === 'browser') {
+          return `
+            <div class="flex-1 flex flex-col">
+              <div class="bg-slate-100 border-b border-slate-200 p-2 flex items-center gap-2">
+                <button onclick="WinOS.navigateBrowser('https://www.microsoft.com/es-es/windows/windows-11')" class="p-1.5 rounded hover:bg-slate-200 text-slate-600"><i data-lucide="home" class="w-4 h-4"></i></button>
+                <input id="win-browser-url" type="text" value="https://hypervm.local/windows11-welcome"
+                       onkeydown="if(event.key==='Enter') WinOS.navigateBrowser(this.value)"
+                       class="flex-1 bg-white border border-slate-300 rounded-full px-3.5 py-1 text-xs text-slate-700 focus:outline-none focus:border-blue-500" />
+                <button onclick="WinOS.navigateBrowser(document.getElementById('win-browser-url').value)" class="px-3 py-1 rounded-full bg-blue-600 text-white text-xs font-medium">Ir</button>
+              </div>
+              <div id="win-browser-view" class="flex-1 p-6 overflow-y-auto bg-gradient-to-b from-sky-50 to-white">
+                <div class="max-w-lg mx-auto text-center space-y-4 py-6">
+                  <div class="w-14 h-14 rounded-2xl bg-blue-600 text-white mx-auto flex items-center justify-center shadow-lg">
+                    <i data-lucide="globe" class="w-8 h-8"></i>
+                  </div>
+                  <h2 class="text-xl font-bold text-slate-900">Microsoft Edge — Entorno Virtual</h2>
+                  <p class="text-xs text-slate-600 leading-relaxed">
+                    Conexión de red puente (VirtIO NetKVM) activa. Tu máquina virtual Windows 11 Pro tiene acceso simulado a la red local y búsqueda web.
+                  </p>
+                  <div class="grid grid-cols-2 gap-3 text-left pt-2">
+                    <div onclick="WinOS.navigateBrowser('https://learn.microsoft.com/windows')" class="cursor-pointer p-3 rounded-xl bg-white border border-slate-200 hover:border-blue-400 shadow-xs">
+                      <div class="text-xs font-bold text-blue-700">Documentación Windows 11</div>
+                      <div class="text-[11px] text-slate-500 mt-0.5">Guías oficiales y atajos de teclado</div>
+                    </div>
+                    <div onclick="Hypervisor.quickSwitch('android')" class="cursor-pointer p-3 rounded-xl bg-white border border-slate-200 hover:border-emerald-400 shadow-xs">
+                      <div class="text-xs font-bold text-emerald-700">Cambiar a Android 14</div>
+                      <div class="text-[11px] text-slate-500 mt-0.5">Arrancar subsistema móvil ARM64</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        if (appId === 'settings') {
+          return `
+            <div class="flex-1 p-5 overflow-y-auto space-y-4 bg-slate-50/70">
+              <div class="flex items-center gap-3 bg-white p-4 rounded-xl border border-slate-200">
+                <div class="w-12 h-12 rounded-xl bg-blue-600 text-white flex items-center justify-center">
+                  <i data-lucide="laptop" class="w-6 h-6"></i>
+                </div>
+                <div>
+                  <h3 class="text-sm font-bold text-slate-900">HYPERVM-WIN11-PRO</h3>
+                  <p class="text-xs text-slate-500">Windows 11 Pro 24H2 · Compilación 26100.2314</p>
+                </div>
+              </div>
+
+              <div class="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 text-xs">
+                <div class="p-3.5 flex justify-between"><span class="text-slate-500">Procesador Virtual</span><span class="font-semibold text-slate-800">${State.specs.cpu} Núcleos HyperVM vCPU @ 3.80 GHz</span></div>
+                <div class="p-3.5 flex justify-between"><span class="text-slate-500">Memoria RAM instalada</span><span class="font-semibold text-slate-800">${State.specs.ram}.0 GB DDR5</span></div>
+                <div class="p-3.5 flex justify-between"><span class="text-slate-500">Almacenamiento NVMe</span><span class="font-semibold text-slate-800">${State.specs.disk} GB VirtIO Block</span></div>
+                <div class="p-3.5 flex justify-between"><span class="text-slate-500">Adaptador Gráfico</span><span class="font-semibold text-slate-800">${State.specs.gpu ? 'VirtIO-GPU 3D Accelerated' : 'Microsoft Basic Display'}</span></div>
+                <div class="p-3.5 flex justify-between"><span class="text-slate-500">Imagen ISO montada</span><span class="font-semibold text-blue-600">${State.mountedFile ? State.mountedFile.name : 'Win11_24H2_Spanish_x64.iso'}</span></div>
+              </div>
+            </div>
+          `;
+        }
+
+        if (appId === 'calculator') {
+          return this.getCalculatorHTML('win');
+        }
+
+        return `<div class="p-6 text-xs text-slate-500">Aplicación lista.</div>`;
+      },
+
+      handleTerminalCommand(e) {
+        if (e.key !== 'Enter') return;
+        const input = e.target;
+        const cmd = input.value.trim();
+        const out = document.getElementById('win-term-output');
+
+        const line = document.createElement('div');
+        line.innerHTML = `<span class="text-emerald-400">PS C:\\Users\\Admin&gt;</span> ${cmd}`;
+        out.appendChild(line);
+
+        const resp = document.createElement('div');
+        resp.className = 'text-slate-300 whitespace-pre-wrap pb-2';
+
+        const lower = cmd.toLowerCase();
+        if (lower === 'help') {
+          resp.textContent = 'Comandos disponibles:\n  iso         - Muestra información del disco ISO montado en D:\n  dir d:      - Lista los archivos detectados en la unidad óptica D:\n  systeminfo  - Muestra especificaciones del hardware virtual\n  dir         - Lista archivos del directorio actual\n  ver         - Muestra la versión de Windows\n  cls         - Limpia la consola\n  android     - Cambia rápidamente al emulador Android ISO';
+        } else if (lower === 'iso') {
+          resp.textContent = State.mountedFile
+            ? `Unidad D: -> ${State.mountedFile.name}\nEtiqueta:   ${State.mountedFile.volumeId}\nFormato:    ${State.mountedFile.fsFormat}\nTamaño:     ${State.mountedFile.sizeFormatted}`
+            : 'Unidad D: está vacía. Usa el botón "Insertar ISO" en la barra superior.';
+        } else if (lower === 'dir d:' || lower === 'ls d:') {
+          if (!State.mountedFile) {
+            resp.textContent = 'La unidad D: no contiene ningún medio montado.';
+          } else {
+            const list = State.mountedFile.entries.map(e => `  ${e.type.padEnd(6, ' ')} ${e.size.padEnd(14, ' ')} ${e.name}`).join('\n');
+            resp.textContent = `Directorio de D:\\ (${State.mountedFile.volumeId})\n\n${list}`;
+          }
+        } else if (lower === 'systeminfo') {
+          resp.textContent = `Nombre de host:       HYPERVM-WIN11-PRO\nSistema operativo:    Microsoft Windows 11 Pro (24H2)\nProcesadores:         ${State.specs.cpu} vCPU(s) instalados\nMemoria física total: ${State.specs.ram * 1024} MB\nDisco virtual:        ${State.specs.disk} GB NVMe`;
+        } else if (lower === 'dir' || lower === 'ls') {
+          resp.textContent = `Directorio: C:\\Users\\Admin\n\nMode                 LastWriteTime         Length Name\n----                 -------------         ------ ----\nd-----        19/11/2026     12:00                Desktop\nd-----        19/11/2026     12:00                Documents\n-a----        19/11/2026     12:01           2048 Notas_Instalacion_ISO.txt`;
+        } else if (lower === 'ver') {
+          resp.textContent = 'Microsoft Windows [Versión 10.0.26100.2314] — ISO Virtual';
+        } else if (lower === 'cls' || lower === 'clear') {
+          out.innerHTML = '';
+          input.value = '';
+          return;
+        } else if (lower === 'android') {
+          Hypervisor.quickSwitch('android');
+          return;
+        } else if (cmd !== '') {
+          resp.textContent = `'${cmd}' no se reconoce como un cmdlet interno o externo. Escribe 'help'.`;
+        }
+
+        out.appendChild(resp);
+        input.value = '';
+        out.parentElement.scrollTop = out.parentElement.scrollHeight;
+      },
+
+      saveNotepad() {
+        const blob = new Blob([State.notepadContent], { type: 'text/plain;charset=utf-8' });
+        const link = document.createElement('a');
+        link.download = 'Notas_Windows11_VM.txt';
+        link.href = URL.createObjectURL(blob);
+        link.click();
+        showToast('Archivo de texto descargado correctamente.', 'success');
+      },
+
+      navigateBrowser(url) {
+        const view = document.getElementById('win-browser-view');
+        const urlBar = document.getElementById('win-browser-url');
+        if (urlBar) urlBar.value = url;
+        if (!view) return;
+        view.innerHTML = `
+          <div class="max-w-lg mx-auto py-8 text-center space-y-3">
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold">
+              <i data-lucide="lock" class="w-3.5 h-3.5"></i> Conexión Segura TLS 1.3
+            </span>
+            <h3 class="text-lg font-bold text-slate-800 break-all">${url}</h3>
+            <p class="text-xs text-slate-600">Vista previa simulada dentro de la red aislada HyperVM Sandbox.</p>
+            <button onclick="WinOS.closeWindow('browser'); WinOS.openApp('browser')" class="mt-2 px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-xs font-semibold text-slate-800">
+              Volver al inicio de Edge
+            </button>
+          </div>
+        `;
+        lucide.createIcons({ nodes: [view] });
+      },
+
+      getCalculatorHTML(prefix) {
+        const buttons = ['7','8','9','/','4','5','6','*','1','2','3','-','C','0','=','+'];
+        return `
+          <div class="flex-1 p-3 flex flex-col justify-between bg-slate-50 select-none">
+            <input id="${prefix}-calc-display" type="text" readonly value="0"
+                   class="w-full text-right font-mono text-2xl font-bold bg-white border border-slate-200 rounded-xl p-3 text-slate-800 mb-3" />
+            <div class="grid grid-cols-4 gap-2 flex-1">
+              ${buttons.map(btn => {
+                const isOp = ['/','*','-','+','='].includes(btn);
+                const isClear = btn === 'C';
+                const cls = btn === '=' ? 'bg-blue-600 text-white hover:bg-blue-700'
+                          : isClear ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
+                          : isOp ? 'bg-slate-200 text-slate-800 hover:bg-slate-300'
+                          : 'bg-white text-slate-800 hover:bg-slate-100 border border-slate-200';
+                return `<button onclick="calcPress('${prefix}', '${btn}')" class="rounded-xl font-bold text-sm transition ${cls}">${btn}</button>`;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      }
+    };
+
+    // Calculadora compartida entre Windows y Android
+    function calcPress(prefix, key) {
+      const display = document.getElementById(`${prefix}-calc-display`);
+      if (!display) return;
+      if (key === 'C') {
+        display.value = '0';
+      } else if (key === '=') {
+        try {
+          // Evaluación matemática segura
+          const sanitized = display.value.replace(/[^0-9+\-*/.]/g, '');
+          const res = Function('"use strict"; return (' + sanitized + ')')();
+          display.value = Number.isFinite(res) ? String(res) : 'Error';
+        } catch {
+          display.value = 'Error';
+        }
+      } else {
+        display.value = display.value === '0' || display.value === 'Error' ? key : display.value + key;
+      }
+    }
+
+    // =========================================================================
+    // ENTORNO EMULADO DE ANDROID 14 (PHONE / TABLET / DEX + ISO & APK MOUNTER)
+    // =========================================================================
+    const AndroidOS = {
+      formFactor: 'phone', // 'phone' | 'tablet' | 'dex'
+
+      setFormFactor(mode) {
+        this.formFactor = mode;
+        const frame = document.getElementById('android-device-frame');
+        const notch = document.getElementById('android-camera-notch');
+
+        ['phone', 'tablet', 'dex'].forEach(m => {
+          const btn = document.getElementById(`and-mode-${m}`);
+          btn.className = m === mode
+            ? 'px-3 py-1 rounded-lg bg-emerald-600 text-white font-medium flex items-center gap-1.5 transition'
+            : 'px-3 py-1 rounded-lg hover:bg-slate-700 flex items-center gap-1.5 transition';
+        });
+
+        if (mode === 'phone') {
+          frame.className = 'relative w-[340px] sm:w-[375px] h-[660px] max-h-[calc(100vh-110px)] rounded-[38px] border-[8px] border-slate-800 shadow-[0_25px_70px_rgba(0,0,0,0.65)] overflow-hidden flex flex-col android-wallpaper text-white transition-all duration-300';
+          notch.classList.remove('hidden');
+        } else if (mode === 'tablet') {
+          frame.className = 'relative w-[92vw] max-w-[820px] h-[540px] max-h-[calc(100vh-110px)] rounded-[28px] border-[10px] border-slate-800 shadow-[0_25px_70px_rgba(0,0,0,0.65)] overflow-hidden flex flex-col android-wallpaper text-white transition-all duration-300';
+          notch.classList.add('hidden');
+        } else {
+          // Modo DeX Escritorio
+          frame.className = 'relative w-[96vw] max-w-[1160px] h-[calc(100vh-105px)] rounded-2xl border-2 border-slate-700 shadow-2xl overflow-hidden flex flex-col android-wallpaper text-white transition-all duration-300';
+          notch.classList.add('hidden');
+        }
+      },
+
+      unlockScreen() {
+        document.getElementById('android-lockscreen').classList.add('hidden');
+      },
+
+      lockScreen() {
+        document.getElementById('android-lockscreen').classList.remove('hidden');
+        this.toggleNotificationShade(false);
+      },
+
+      toggleNotificationShade(forceState) {
+        const shade = document.getElementById('android-notif-shade');
+        if (typeof forceState === 'boolean') {
+          shade.classList.toggle('hidden', !forceState);
+        } else {
+          shade.classList.toggle('hidden');
+        }
+        lucide.createIcons({ nodes: [shade] });
+      },
+
+      goHome() {
+        document.getElementById('android-app-container').classList.add('hidden');
+        this.toggleNotificationShade(false);
+      },
+
+      goBack() {
+        const appContainer = document.getElementById('android-app-container');
+        if (!appContainer.classList.contains('hidden')) {
+          this.goHome();
+        } else {
+          showToast('Estás en la pantalla principal de Android 14.');
+        }
+      },
+
+      showRecents() {
+        this.openApp('recents');
+      },
+
+      openApp(appId) {
+        const container = document.getElementById('android-app-container');
+        const title = document.getElementById('android-app-title');
+        const body = document.getElementById('android-app-body');
+
+        container.classList.remove('hidden');
+
+        const titles = {
+          settings: 'Ajustes del sistema',
+          browser: 'Google Chrome',
+          calculator: 'Calculadora',
+          camera: 'Cámara Pixel',
+          files: 'Files de Google',
+          notes: 'Google Keep',
+          apk: 'Instalador de Paquetes APK',
+          gallery: 'Google Fotos',
+          recents: 'Aplicaciones recientes'
+        };
+        title.textContent = titles[appId] || 'Aplicación';
+
+        if (appId === 'settings') {
+          body.innerHTML = `
+            <div class="space-y-3 text-xs">
+              <div class="bg-emerald-600 text-white p-4 rounded-2xl shadow-sm">
+                <div class="text-[11px] uppercase tracking-wider opacity-80">Versión de Android</div>
+                <div class="text-lg font-bold mt-0.5">Android 14 (Upside Down Cake)</div>
+                <div class="text-[11px] opacity-90 mt-1">Parche de seguridad: Noviembre 2026</div>
+              </div>
+              <div class="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100">
+                <div class="p-3 flex justify-between"><span class="text-slate-500">Modelo de dispositivo</span><span class="font-semibold">HyperVM Pixel Fold Virtual</span></div>
+                <div class="p-3 flex justify-between"><span class="text-slate-500">Arquitectura CPU</span><span class="font-semibold">${State.specs.cpu} Núcleos ARM64-v8a</span></div>
+                <div class="p-3 flex justify-between"><span class="text-slate-500">Memoria RAM</span><span class="font-semibold">${State.specs.ram} GB LPDDR5</span></div>
+                <div class="p-3 flex justify-between"><span class="text-slate-500">Almacenamiento interno</span><span class="font-semibold">${State.specs.disk} GB UFS 4.0</span></div>
+                <div class="p-3 flex justify-between"><span class="text-slate-500">Modo de pantalla</span><span class="font-semibold uppercase">${this.formFactor}</span></div>
+              </div>
+            </div>
+          `;
+        } else if (appId === 'calculator') {
+          body.innerHTML = WinOS.getCalculatorHTML('and');
+        } else if (appId === 'camera') {
+          body.innerHTML = `
+            <div class="h-full flex flex-col justify-between bg-slate-950 rounded-2xl p-4 text-white text-center">
+              <div class="text-[11px] text-emerald-400 font-mono">VIRTIO-CAMERA 1080P · HDR+ ACTIVO</div>
+              <div class="my-auto relative rounded-2xl overflow-hidden border border-slate-800 bg-gradient-to-tr from-emerald-900 via-teal-800 to-sky-900 h-56 flex flex-col items-center justify-center">
+                <i data-lucide="aperture" class="w-14 h-14 text-white/80 animate-spin" style="animation-duration: 12s;"></i>
+                <span class="text-xs text-white/80 mt-2">Vista previa del sensor virtual</span>
+              </div>
+              <div class="flex items-center justify-center gap-6 pt-2">
+                <button onclick="Hypervisor.takeScreenshot()" class="w-14 h-14 rounded-full bg-white border-4 border-slate-400 active:scale-90 transition shadow-lg" title="Tomar foto"></button>
+              </div>
+            </div>
+          `;
+        } else if (appId === 'apk') {
+          const iso = State.mountedFile;
+          const isoCard = iso ? `
+            <div class="bg-blue-50 border border-blue-200 p-3.5 rounded-2xl flex items-center justify-between gap-2">
+              <div class="min-w-0">
+                <div class="text-[10px] font-bold uppercase text-blue-600">Medio ISO Montado (/mnt/iso)</div>
+                <div class="font-bold text-slate-900 truncate">${iso.name}</div>
+                <div class="text-[11px] text-slate-500 font-mono">${iso.volumeId} · ${iso.sizeFormatted}</div>
+              </div>
+              <button onclick="ISODriveModal.open()" class="px-3 py-1.5 rounded-xl bg-blue-600 text-white font-semibold shrink-0">Cambiar</button>
+            </div>` : '';
+
+          body.innerHTML = `
+            <div class="space-y-4 text-xs">
+              ${isoCard}
+              <div class="bg-emerald-50 border border-emerald-200 p-3.5 rounded-2xl flex items-center justify-between gap-2">
+                <div>
+                  <div class="font-bold text-emerald-900">Insertar .ISO o instalar .APK</div>
+                  <div class="text-[11px] text-emerald-700">Selecciona un paquete Android o imagen ISO desde tu equipo</div>
+                </div>
+                <label class="cursor-pointer px-3 py-2 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 shrink-0">
+                  Seleccionar
+                  <input type="file" accept=".apk,.iso,.img" class="hidden" onchange="VMManager.handleFileSelect(event); setTimeout(() => AndroidOS.openApp('apk'), 150)">
+                </label>
+              </div>
+
+              <div>
+                <h4 class="font-bold text-slate-700 mb-2">Aplicaciones instaladas (${State.installedApks.length})</h4>
+                <div class="space-y-2">
+                  ${State.installedApks.map(apk => `
+                    <div class="bg-white p-3 rounded-xl border border-slate-200 flex items-center justify-between">
+                      <div class="flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                          <i data-lucide="package" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                          <div class="font-bold text-slate-800">${apk.name}</div>
+                          <div class="text-[10px] text-slate-400 font-mono">${apk.pkg} · v${apk.version}</div>
+                        </div>
+                      </div>
+                      <span class="text-[11px] font-medium text-slate-500">${apk.size}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            </div>
+          `;
+        } else if (appId === 'browser') {
+          body.innerHTML = `
+            <div class="space-y-3 text-xs">
+              <div class="flex gap-2">
+                <input id="and-url-input" type="text" value="https://developer.android.com/about/versions/14"
+                       class="flex-1 bg-slate-100 border border-slate-300 rounded-full px-3.5 py-2 text-xs">
+                <button onclick="showToast('Cargando URL en Chrome Android...')" class="px-3.5 py-2 rounded-full bg-blue-600 text-white font-semibold">Ir</button>
+              </div>
+              <div class="bg-white p-4 rounded-2xl border border-slate-200 space-y-2">
+                <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold text-[10px]">Android 14 WebView</span>
+                <h4 class="text-sm font-bold text-slate-900">Navegador Chrome para Android</h4>
+                <p class="text-slate-600 leading-relaxed">Motor Blink optimizado para pantallas táctiles y modo escritorio DeX dentro de HyperVM.</p>
+              </div>
+            </div>
+          `;
+        } else if (appId === 'notes') {
+          body.innerHTML = `
+            <div class="h-full flex flex-col gap-2">
+              <textarea class="flex-1 w-full bg-amber-50 border border-amber-200 rounded-2xl p-3.5 text-xs text-slate-800 focus:outline-none resize-none"
+                        placeholder="Escribe una nota rápida en Android 14...">Lista de tareas en Android 14 VM:
+- Probar rotación a Tablet y Modo DeX
+- Instalar paquete .APK personalizado
+- Verificar especificaciones en Ajustes</textarea>
+            </div>
+          `;
+        } else if (appId === 'files' || appId === 'gallery') {
+          const iso = State.mountedFile;
+          body.innerHTML = `
+            <div class="space-y-3 text-xs">
+              <div class="bg-white p-3.5 rounded-2xl border border-slate-200 flex items-center justify-between">
+                <span class="font-semibold text-slate-700">Almacenamiento interno</span>
+                <span class="text-emerald-600 font-bold">14.2 GB / ${State.specs.disk} GB</span>
+              </div>
+              <div class="bg-white p-3.5 rounded-2xl border border-slate-200 flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <i data-lucide="disc" class="w-5 h-5 text-blue-600 shrink-0"></i>
+                  <div class="truncate">
+                    <div class="font-bold text-slate-800 truncate">${iso ? iso.name : 'Sin ISO montada'}</div>
+                    <div class="text-[10px] text-slate-400 font-mono">${iso ? `${iso.volumeId} · ${iso.sizeFormatted}` : 'Toca para insertar ISO'}</div>
+                  </div>
+                </div>
+                <button onclick="ISODriveModal.open()" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 font-semibold text-slate-700 shrink-0">ISO</button>
+              </div>
+              <div class="grid grid-cols-2 gap-2.5">
+                <div class="bg-white p-3 rounded-2xl border border-slate-200 flex items-center gap-2.5">
+                  <i data-lucide="download" class="w-5 h-5 text-blue-600"></i>
+                  <div><div class="font-bold">Descargas</div><div class="text-[10px] text-slate-400">3 elementos</div></div>
+                </div>
+                <div class="bg-white p-3 rounded-2xl border border-slate-200 flex items-center gap-2.5">
+                  <i data-lucide="image" class="w-5 h-5 text-purple-600"></i>
+                  <div><div class="font-bold">Capturas</div><div class="text-[10px] text-slate-400">2 elementos</div></div>
+                </div>
+              </div>
+            </div>
+          `;
+        } else if (appId === 'recents') {
+          body.innerHTML = `
+            <div class="h-full flex flex-col items-center justify-center text-center gap-3 text-xs text-slate-500">
+              <i data-lucide="layers" class="w-10 h-10 text-emerald-600"></i>
+              <p>Memoria optimizada · ${State.specs.ram} GB RAM disponibles</p>
+              <button onclick="AndroidOS.goHome(); showToast('Memoria caché liberada', 'success')" class="px-4 py-2 rounded-full bg-emerald-600 text-white font-semibold">
+                Borrar todo
+              </button>
+            </div>
+          `;
+        }
+
+        lucide.createIcons({ nodes: [body] });
+      },
+
+      installSimulatedApk(e) {
+        if (!e.target.files || e.target.files.length === 0) return;
+        const file = e.target.files[0];
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+        State.installedApks.unshift({
+          name: file.name.replace('.apk', ''),
+          pkg: 'com.installed.' + file.name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase(),
+          version: '1.0 (Instalado)',
+          size: sizeMB + ' MB'
+        });
+        showToast(`Paquete "${file.name}" instalado en Android 14.`, 'success');
+        this.openApp('apk');
+      }
+    };
+
+    // =========================================================================
+    // INICIALIZACIÓN AL CARGAR LA PÁGINA
+    // =========================================================================
+    window.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      WinOS.init();
+      syncISOUI();
+      updateClocksAndTelemetry();
+      setInterval(updateClocksAndTelemetry, 1000);
+    });
+  </script>
+</body>
+</html>
